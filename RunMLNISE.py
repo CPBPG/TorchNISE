@@ -72,6 +72,7 @@ def gen_noise(spectral_funcs,dt,shape,memory_mapped=False):
             noise=torch.zeros(shape)
         for i in range(shape[-1]):
             noise[:,:,i]= torch.tensor(noise_algorithm((reals,steps),dt,spectral_funcs[i],axis=1))
+            print(torch.isnan(noise[:,:,i]).any())
         return noise
     else:
         raise ValueError(f"len of spectral_funcs was {len(spectral_funcs)}, but must either be 1 or match number of sites ({n_sites})")
@@ -277,6 +278,10 @@ def replace_nan_with_neighbor_mean(arr, axis):
             arr[tuple(idx)] = arr[tuple(idx_left)]
 
     return arr
+def make_positive_spectral_func(spectral_func):
+    def positive_spectral_func(x):
+        return np.clip(spectral_func(x), a_min=0, a_max=None)
+    return positive_spectral_func
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='MLNise')
@@ -327,10 +332,10 @@ if __name__ == "__main__":
     
    
     gamma=1/100
-    reals=1000
-    maxreps=25
+    reals=10
+    maxreps=10
     E_reorg=100
-    total_time=10000
+    total_time=50000
     pigments=load_pigments("data/superComplex/Pigment_naming.dat")
     
     
@@ -356,7 +361,7 @@ if __name__ == "__main__":
     plt.show()
     plt.close()
     spectral_func_b=interp1d(S_padded_b[:, 0], S_padded_b[:, 1], kind="cubic", assume_sorted=False,fill_value=0)
-    
+    spectral_func_b=make_positive_spectral_func(spectral_func_b)
     
     J_a=0  
     for i in chla_ind:
@@ -365,7 +370,7 @@ if __name__ == "__main__":
     plt.plot(J_a[:,0],J_a[:,1])
     plt.show()
     plt.close()
-    pad=J_a.shape[0]*10       
+    pad=J_a.shape[0]*10 
     J_padded_a=PadJ(J_a,pad)
     S_padded_a=J_padded_a
     #J=S/(2*np.pi*k*T)*ww
@@ -378,6 +383,7 @@ if __name__ == "__main__":
     plt.show()
     plt.close()
     spectral_func_a=interp1d(S_padded_a[:, 0], S_padded_a[:, 1], kind="cubic", assume_sorted=False,fill_value=0)
+    spectral_func_a=make_positive_spectral_func(spectral_func_a)
     midpoint=len(S_padded_a[:,0])//2
     print(midpoint)
     print(S_padded_a[midpoint-5:midpoint+5, 1])
@@ -402,7 +408,7 @@ if __name__ == "__main__":
     #model.to("cuda")
     correction="None"
     H_0=torch.tensor(H)
-    spectral_funcs=[spectral_func_a]
+    spectral_funcs=[spectral_func]
     
     
     ww=np.linspace(-1,1,500)/hbar
@@ -453,4 +459,5 @@ if __name__ == "__main__":
     plt.close()
             
         
-    #plt.plot(avg_output[:,0])
+    plt.plot(avg_output[:,0])
+    print(avg_output[0:100,0])
