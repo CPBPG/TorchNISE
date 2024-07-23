@@ -59,16 +59,19 @@ def absorb_time_to_freq(absorb_time,pad,total_time,dt):
     return absorb_f,x_axis
 
 
-def gen_noise(spectral_funcs,dt,shape):
+def gen_noise(spectral_funcs,dt,shape,memory_mapped=False):
     if len(shape)!=3:
         raise ValueError(f"gen_noise requres a shape tuple with (reals,steps,n_sites) but a tuple of size {len(shape)} was given")  
     reals,steps,n_sites = shape
     if len(spectral_funcs)==1:
-        return noise_algorithm(shape,dt,spectral_funcs[0],axis=1)
+        return torch.tensor(noise_algorithm(shape,dt,spectral_funcs[0],axis=1))
     elif len(spectral_funcs)==n_sites:
-        noise=np.zeros(shape)
+        if memory_mapped:
+            noise= create_empty_mmap_tensor(shape)
+        else:
+            noise=torch.zeros(shape)
         for i in range(shape[-1]):
-            noise[:,:,i]= noise_algorithm((reals,steps),dt,spectral_funcs[i],axis=1)
+            noise[:,:,i]= torch.tensor(noise_algorithm((reals,steps),dt,spectral_funcs[i],axis=1))
         return noise
     else:
         raise ValueError(f"len of spectral_funcs was {len(spectral_funcs)}, but must either be 1 or match number of sites ({n_sites})")
@@ -232,7 +235,48 @@ def load_pigments(file_path):
             pigments.append(pigment_dict)
 
     return pigments
+def replace_nan_with_neighbor_mean(arr, axis):
+    """
+    Replaces NaN values with the mean of their neighboring values along the specified axis.
 
+    Parameters:
+    arr (numpy.ndarray): Input array with NaN values.
+    axis (int): Axis along which to replace NaN values.
+
+    Returns:
+    numpy.ndarray: Array with NaN values replaced.
+    """
+    arr = np.asarray(arr)
+    nan_indices = np.where(np.isnan(arr))
+    
+    # Iterate through all NaN indices
+    for idx in zip(*nan_indices):
+        idx = list(idx)  # Convert to list to allow modification
+        if idx[axis] > 0 and idx[axis] < arr.shape[axis] - 1:
+            idx_left = idx.copy()
+            idx_left[axis] -= 1
+            idx_right = idx.copy()
+            idx_right[axis] += 1
+            
+            left_neighbor = arr[tuple(idx_left)]
+            right_neighbor = arr[tuple(idx_right)]
+            
+            if not np.isnan(left_neighbor) and not np.isnan(right_neighbor):
+                arr[tuple(idx)] = (left_neighbor + right_neighbor) / 2
+            elif np.isnan(left_neighbor) and not np.isnan(right_neighbor):
+                arr[tuple(idx)] = right_neighbor
+            elif not np.isnan(left_neighbor) and np.isnan(right_neighbor):
+                arr[tuple(idx)] = left_neighbor
+        elif idx[axis] == 0:
+            idx_right = idx.copy()
+            idx_right[axis] += 1
+            arr[tuple(idx)] = arr[tuple(idx_right)]
+        elif idx[axis] == arr.shape[axis] - 1:
+            idx_left = idx.copy()
+            idx_left[axis] -= 1
+            arr[tuple(idx)] = arr[tuple(idx_left)]
+
+    return arr
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='MLNise')
@@ -264,7 +308,7 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     H=np.array([[100,100],[100,0]],dtype=np.float32)#   np.load(args.Hamiltonian)#np.load("Pytorch HEOM/HEOM/hamil.npy")#   
-    H=np.loadtxt("data/superComplex/Hamiltonian_sup.dat")
+    H=np.loadtxt("data/superComplex/Hamiltonian_sup_new_E.dat")
     H=H/cm_to_eV
     n_state=H.shape[0]
     AveE=np.mean(H[np.eye(n_state,dtype=bool)])
@@ -283,14 +327,16 @@ if __name__ == "__main__":
     
    
     gamma=1/100
-    reals=100
-    maxreps=100
+    reals=1000
+    maxreps=25
     E_reorg=100
     total_time=10000
+    pigments=load_pigments("data/superComplex/Pigment_naming.dat")
+    
     
     chlb_ind=[1,5,6,7,8]
     chla_ind=[2,3,4,9,10,11]
-    """J_b=0
+    J_b=0
     for i in chlb_ind:
         J_b+=np.loadtxt(f"data/superComplex/SPD/J_av_{i}.dat")
     J_b=J_b/len(chlb_ind)
@@ -302,12 +348,14 @@ if __name__ == "__main__":
     S_padded_b=J_padded_b
     #J=S/(2*np.pi*k*T)*ww
     S_padded_b[:,0]=S_padded_b[:,0]/hbar
+    #S_padded_b[:,0][S_padded_b[:,0]==0]=1e-6
     S_padded_b[:,1]=S_padded_b[:,1]/cm_to_eV*2*np.pi*k*T/S_padded_b[:,0]
-    S_padded_b[np.isnan(S_padded_b)]=0
-    plt.plot(S_padded_b[:,0],J_padded_b[:,1])
+    replace_nan_with_neighbor_mean(S_padded_b,axis=0)
+    #S_padded_b[np.isnan(S_padded_b)]=0
+    plt.plot(S_padded_b[:,0],S_padded_b[:,1])
     plt.show()
     plt.close()
-    spectral_func_b=interp1d(S_padded_b[:, 0], S_padded_b[:, 1], kind="cubic", assume_sorted=True)
+    spectral_func_b=interp1d(S_padded_b[:, 0], S_padded_b[:, 1], kind="cubic", assume_sorted=False,fill_value=0)
     
     
     J_a=0  
@@ -322,14 +370,18 @@ if __name__ == "__main__":
     S_padded_a=J_padded_a
     #J=S/(2*np.pi*k*T)*ww
     S_padded_a[:,0]=S_padded_a[:,0]/hbar
+    #S_padded_a[:,0][S_padded_a[:,0]==0]=1e-6
     S_padded_a[:,1]=S_padded_a[:,1]/cm_to_eV*2*np.pi*k*T/S_padded_a[:,0]
-    S_padded_a[np.isnan(S_padded_a)]=0
-    plt.plot(S_padded_a[:,0],J_padded_a[:,1])
+    replace_nan_with_neighbor_mean(S_padded_a,axis=0)
+    #S_padded_a[np.isnan(S_padded_a)]=0
+    plt.plot(S_padded_a[:,0],S_padded_a[:,1])
     plt.show()
     plt.close()
-    spectral_func_a=interp1d(S_padded_a[:, 0], S_padded_a[:, 1], kind="cubic", assume_sorted=True)
-    
-    
+    spectral_func_a=interp1d(S_padded_a[:, 0], S_padded_a[:, 1], kind="cubic", assume_sorted=False,fill_value=0)
+    midpoint=len(S_padded_a[:,0])//2
+    print(midpoint)
+    print(S_padded_a[midpoint-5:midpoint+5, 1])
+    print(spectral_func_a(S_padded_a[midpoint-5:midpoint+5, 0]))
     spectral_funcs=[]
     for i,pigment in enumerate(pigments):
         if pigment["Type"]=="CLA":
@@ -337,9 +389,9 @@ if __name__ == "__main__":
         elif pigment["Type"] =="CHL":
             spectral_funcs.append(spectral_func_b)
         else:
-            raise NotImplementedError(f"Type {pigment['Type']} not available")"""
+            raise NotImplementedError(f"Type {pigment['Type']} not available")
         
-    pigments=load_pigments("data/superComplex/Pigment_naming.dat")
+    
     spectral_func=functools.partial(ExampleSpectralFunctions.spectral_Drude,gamma=gamma,strength=E_reorg,k=k,T=T)
     device="cpu"
     memory_mapped=True
@@ -350,9 +402,38 @@ if __name__ == "__main__":
     #model.to("cuda")
     correction="None"
     H_0=torch.tensor(H)
-    spectral_funcs=[spectral_func]
+    spectral_funcs=[spectral_func_a]
+    
+    
+    ww=np.linspace(-1,1,500)/hbar
+    S=spectral_func(S_padded_a[:,0])
+    #SD=S/(2*np.pi*k*T)*S_padded_a[:,0]
+    #plt.plot(SD_heom[:,0],SD_heom[:,1],label="heom code")
+   
+    plt.plot(ww,spectral_func(ww),label="S_Drude")
+    plt.plot(S_padded_a[:,0],S_padded_a[:,1],label="S_a_file")
+    plt.plot(S_padded_a[:,0],spectral_func_a(S_padded_a[:,0]),label="S_a")
+    plt.xlim(-0.4,0.4)
+    plt.legend()
+    plt.show()
+    plt.close()
+    
+    
+    ww=np.linspace(-0.2,0.2,500)/hbar
+    S=spectral_func_a(ww)
+    SD=S/(2*np.pi*k*T)*ww
+
+    #plt.plot(SD_heom[:,0],SD_heom[:,1],label="heom code")
+
+    plt.plot(ww*hbar,SD/cm_to_eV,label="SD_a_func")
+    plt.plot(J_a[:,0]*cm_to_eV,J_a[:,1],label="SD_a_file")
+    plt.xlim(-0.2,0.2)
+    plt.legend()
+    plt.show()
+    plt.close()
+    
     avg_output, avg_oldave, avg_newave,avg_absorb_time,x_axis, absorb_f = RunNiseOptions(model, reals, H_0,tau,Er, T, dt, initiallyExcitedState, total_time, spectral_funcs, trajectory_time=None, T_correction=correction, maxreps=maxreps, use_filter=False, filter_order=10, filter_cutoff=0.1, mode="population",mu=None,device=device,memory_mapped=memory_mapped)
-    print(avg_output[0,:])
+    #print(avg_output[0,:])
     Complexes={}
     
     
@@ -361,7 +442,7 @@ if __name__ == "__main__":
             Complexes[pigments[i]["Complex"]] = [avg_output[:,i]]
         else:
             Complexes[pigments[i]["Complex"]].append(avg_output[:,i])
-    print (Complexes)
+    #print (Complexes)
     for lh_complex_name,pops in Complexes.items():
         pop_lh=0
         for pop in pops:
