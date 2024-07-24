@@ -72,13 +72,12 @@ def gen_noise(spectral_funcs,dt,shape,memory_mapped=False):
             noise=torch.zeros(shape)
         for i in range(shape[-1]):
             noise[:,:,i]= torch.tensor(noise_algorithm((reals,steps),dt,spectral_funcs[i],axis=1))
-            print(torch.isnan(noise[:,:,i]).any())
         return noise
     else:
         raise ValueError(f"len of spectral_funcs was {len(spectral_funcs)}, but must either be 1 or match number of sites ({n_sites})")
     
 
-def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, total_time, spectral_funcs, trajectory_time=None, T_correction='None', maxreps=1000000, use_filter=False, filter_order=10, filter_cutoff=0.1, mode="population",mu=None,device="cpu",memory_mapped=False):
+def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, total_time, spectral_funcs, trajectory_time=None, T_correction='None', maxreps=1000000, use_filter=False, filter_order=10, filter_cutoff=0.1, mode="population",mu=None,device="cpu",memory_mapped=False,save_Interval=10):
     hbar = 0.658211951
 
     total_steps = int((total_time + dt) / dt)   
@@ -119,7 +118,7 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
             print("building H")
             chunk_Hfull[:] = H_0
             for i in range(n_state):
-                print(f"adding noise state {i}")
+                #print(f"adding noise state {i}")
                 """print(mynoise.shape)
                 print(mynoise[0, 0:10, i])
                 plt.plot(mynoise[0, :, i])
@@ -154,7 +153,7 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
     elif mode =="absorption":
         #all_meancoherence=[]
         all_absorb_time=[]
-    saveU = mode =="absorption"#True #
+    saveU = True #mode =="absorption"#
     
     weights = []
     all_output = []
@@ -165,7 +164,7 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
 
         print(chunk_Hfull.shape)
         print("running calculation")
-        result,MSE, meancoherence,U, old_res, matrix_ave = model.simulate(0, 0, T, Er, tau, total_time, dt, chunk_reps, psi0, chunk_Hfull, device=device, T_correction=T_correction,saveU= saveU,memory_mapped=memory_mapped)
+        result,MSE, meancoherence,U, old_res, matrix_ave = model.simulate(0, 0, T, Er, tau, total_time, dt, chunk_reps, psi0, chunk_Hfull, device=device, T_correction=T_correction,saveU= saveU,memory_mapped=memory_mapped,save_Interval=save_Interval)
         if saveU:
             torch.save(U,"U.pt")
         if mode=="population":            
@@ -313,8 +312,8 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     H=np.array([[100,100],[100,0]],dtype=np.float32)#   np.load(args.Hamiltonian)#np.load("Pytorch HEOM/HEOM/hamil.npy")#   
-    H=np.loadtxt("data/superComplex/Hamiltonian_sup_new_E.dat")
-    H=H/cm_to_eV
+    #H=np.loadtxt("data/superComplex/Hamiltonian_sup_new_E.dat")
+    #H=H/cm_to_eV
     n_state=H.shape[0]
     AveE=np.mean(H[np.eye(n_state,dtype=bool)])
     H[np.eye(n_state,dtype=bool)]-=AveE
@@ -332,10 +331,11 @@ if __name__ == "__main__":
     
    
     gamma=1/100
-    reals=10
-    maxreps=10
+    reals=1000
+    maxreps=1000
     E_reorg=100
-    total_time=50000
+    total_time=1000
+    """
     pigments=load_pigments("data/superComplex/Pigment_naming.dat")
     
     
@@ -396,7 +396,7 @@ if __name__ == "__main__":
             spectral_funcs.append(spectral_func_b)
         else:
             raise NotImplementedError(f"Type {pigment['Type']} not available")
-        
+    """
     
     spectral_func=functools.partial(ExampleSpectralFunctions.spectral_Drude,gamma=gamma,strength=E_reorg,k=k,T=T)
     device="cpu"
@@ -408,11 +408,13 @@ if __name__ == "__main__":
     #model.to("cuda")
     correction="None"
     H_0=torch.tensor(H)
+    
+    
     spectral_funcs=[spectral_func]
     
     
     ww=np.linspace(-1,1,500)/hbar
-    S=spectral_func(S_padded_a[:,0])
+    """S=spectral_func(S_padded_a[:,0])
     #SD=S/(2*np.pi*k*T)*S_padded_a[:,0]
     #plt.plot(SD_heom[:,0],SD_heom[:,1],label="heom code")
    
@@ -436,14 +438,14 @@ if __name__ == "__main__":
     plt.xlim(-0.2,0.2)
     plt.legend()
     plt.show()
-    plt.close()
-    
-    avg_output, avg_oldave, avg_newave,avg_absorb_time,x_axis, absorb_f = RunNiseOptions(model, reals, H_0,tau,Er, T, dt, initiallyExcitedState, total_time, spectral_funcs, trajectory_time=None, T_correction=correction, maxreps=maxreps, use_filter=False, filter_order=10, filter_cutoff=0.1, mode="population",mu=None,device=device,memory_mapped=memory_mapped)
+    plt.close()"""
+    save_Interval=1
+    avg_output, avg_oldave, avg_newave,avg_absorb_time,x_axis, absorb_f = RunNiseOptions(model, reals, H_0,tau,Er, T, dt, initiallyExcitedState, total_time, spectral_funcs, trajectory_time=None, T_correction=correction, maxreps=maxreps, use_filter=False, filter_order=10, filter_cutoff=0.1, mode="population",mu=None,device=device,memory_mapped=memory_mapped,save_Interval=save_Interval)
     #print(avg_output[0,:])
     Complexes={}
     
     
-    for i in range(n_state):
+    """for i in range(n_state):
         if pigments[i]["Complex"] not in Complexes:
             Complexes[pigments[i]["Complex"]] = [avg_output[:,i]]
         else:
@@ -453,11 +455,13 @@ if __name__ == "__main__":
         pop_lh=0
         for pop in pops:
             pop_lh+= pop
-        plt.plot(pop_lh,label=lh_complex_name)
+        plt.plot(np.linspace(0,total_time/1000,len(pop_lh)),pop_lh,label=lh_complex_name)
+    plt.xlabel("time [ps]")
+    plt.ylabel("population")
     plt.legend()
     plt.show()
-    plt.close()
+    plt.close()"""
             
         
     plt.plot(avg_output[:,0])
-    print(avg_output[0:100,0])
+    #print(avg_output[0:100,0])
