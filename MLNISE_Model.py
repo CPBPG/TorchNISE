@@ -114,7 +114,7 @@ class MLNISE(nn.Module):
     # This is the method that we want to train. As input come the system Parameters and as output the Population dynamics
     # To work well with pytorch this is setup to take a whole batch of input parameters and return a whole batch of population dynamics
     # For each set of input paramers it calculates only 1 realization 
-    def forward(self,T,Er,cortim,total_time,dt,reps, psi0,Hfull,device="cpu",T_correction="ML",saveCoherence=False,explicitTemp="None",saveU=False,memory_mapped=False):
+    def forward(self,T,Er,cortim,total_time,dt,reps, psi0,Hfull,device="cpu",T_correction="ML",saveCoherence=False,explicitTemp="None",saveU=False,memory_mapped=False,save_Interval=10):
         if device=="cuda":
             torch.backends.cuda.preferred_linalg_library(backend="magma")
         corrections=["ml","jansen","none"]  
@@ -142,9 +142,9 @@ class MLNISE(nn.Module):
         
         
         if memory_mapped:
-            PSLOC=create_empty_mmap_tensor((batchsize,int(total_time[0]/dt[0])+1,N))
+            PSLOC=create_empty_mmap_tensor((batchsize,int(total_time[0]/dt[0]/save_Interval)+1,N))
         else:
-            PSLOC=torch.zeros(batchsize,int(total_time[0]/dt[0])+1,N,device="cpu")
+            PSLOC=torch.zeros(batchsize,int(total_time[0]/dt[0]/save_Interval)+1,N,device="cpu")
         
         
         
@@ -175,9 +175,9 @@ class MLNISE(nn.Module):
         if saveU:
             
             if memory_mapped:
-                ULOC=create_empty_mmap_tensor((batchsize,int(total_time[0]/dt[0])+1,N,N),dtype=torch.complex64)
+                ULOC=create_empty_mmap_tensor((batchsize,int(total_time[0]/dt[0]/save_Interval)+1,N,N),dtype=torch.complex64)
             else:
-                ULOC=torch.zeros(batchsize,int(total_time[0]/dt[0])+1,N,N,device="cpu",dtype=torch.complex64)
+                ULOC=torch.zeros(batchsize,int(total_time[0]/dt[0]/save_Interval)+1,N,N,device="cpu",dtype=torch.complex64)
             identiy=torch.eye(N,dtype=torch.complex64)
             identiy=identiy.reshape(1,N,N)
             ULOC[:,0,:,:]= identiy.repeat(batchsize,1,1)
@@ -300,33 +300,33 @@ class MLNISE(nn.Module):
             EigenTEnsor=C.to(dtype=torch.complex64)  #Make the transition matrix complex
         
             PhiBinLocBase=EigenTEnsor.bmm(phiB) #Tranision to the site basis
-
-            PSLOC[:,t,:]=((PhiBinLocBase.abs()**2)[:,:,0]).cpu() #Save the result in the site Basis  
-            if saveU:
-                #UB_real_orig=UB.real.clone()
-                #UB_imag_orig=UB.imag.clone()
-                for i in range(0,N):          
-                    UB_Norm_Row=renorm(UB[:,:,i],dim=1)                           
-                    UB[:,:,i]=UB_Norm_Row[:,:]
-                    #UB.real[:,:,i]=UB_Norm_Row.real[:,:,0]
-                    #UB.imag[:,:,i]=UB_Norm_Row.imag[:,:,0]
-                ULOC[:,t,:,:]=(EigenTEnsor.bmm(UB)).cpu() 
-                #ULOC_real[:,t,:,:]=ULOC.real
-                #ULOC_imag[:,t,:,:]=ULOC.imag
-            if saveCoherence:
-                CohLoc[:,t,:,:]= PhiBinLocBase.squeeze(-1)[:, :, None] * PhiBinLocBase.squeeze(-1)[:, None, :].conj()
-                
-                #for i in range(0,N):
-                #    for j in range(0,N):
-                #        ac = PhiBinLocBase.real[:,i,0]*PhiBinLocBase.real[:,j,0]
-                #        bd = PhiBinLocBase.imag[:,i,0]*(-1*PhiBinLocBase.imag[:,j,0])
-                #        ad = PhiBinLocBase.real[:,i,0]*(-1*PhiBinLocBase.imag[:,j,0])
-                #        bc = PhiBinLocBase.imag[:,i,0]*PhiBinLocBase.real[:,j,0]
-                        #real=ac - bd
-                        #imag=ad + bc 
-                #        CohLoc.real[:,t,i,j] = ac - bd
-                #        CohLoc.imag[:,t,i,j] = ad + bc           
-                        #CohLoc.real[:,t,i,j]=ComplexTensor(real,imag).abs()
+            if t%save_Interval==0:
+                PSLOC[:,t//save_Interval,:]=((PhiBinLocBase.abs()**2)[:,:,0]).cpu() #Save the result in the site Basis  
+                if saveU:
+                    #UB_real_orig=UB.real.clone()
+                    #UB_imag_orig=UB.imag.clone()
+                    for i in range(0,N):          
+                        UB_Norm_Row=renorm(UB[:,:,i],dim=1)                           
+                        UB[:,:,i]=UB_Norm_Row[:,:]
+                        #UB.real[:,:,i]=UB_Norm_Row.real[:,:,0]
+                        #UB.imag[:,:,i]=UB_Norm_Row.imag[:,:,0]
+                    ULOC[:,t//save_Interval,:,:]=(EigenTEnsor.bmm(UB)).cpu() 
+                    #ULOC_real[:,t,:,:]=ULOC.real
+                    #ULOC_imag[:,t,:,:]=ULOC.imag
+                if saveCoherence:
+                    CohLoc[:,t//save_Interval,:,:]= PhiBinLocBase.squeeze(-1)[:, :, None] * PhiBinLocBase.squeeze(-1)[:, None, :].conj()
+                    
+                    #for i in range(0,N):
+                    #    for j in range(0,N):
+                    #        ac = PhiBinLocBase.real[:,i,0]*PhiBinLocBase.real[:,j,0]
+                    #        bd = PhiBinLocBase.imag[:,i,0]*(-1*PhiBinLocBase.imag[:,j,0])
+                    #        ad = PhiBinLocBase.real[:,i,0]*(-1*PhiBinLocBase.imag[:,j,0])
+                    #        bc = PhiBinLocBase.imag[:,i,0]*PhiBinLocBase.real[:,j,0]
+                            #real=ac - bd
+                            #imag=ad + bc 
+                    #        CohLoc.real[:,t,i,j] = ac - bd
+                    #        CohLoc.imag[:,t,i,j] = ad + bc           
+                            #CohLoc.real[:,t,i,j]=ComplexTensor(real,imag).abs()
         if not saveCoherence:
             CohLoc = None
         if not saveU:
@@ -336,7 +336,7 @@ class MLNISE(nn.Module):
     #The default forward method calculates one realization for every set of input parameters given
     #Therefore we need a simulation mode where one set of input parameters is used and run and avaraged over many realizations
     #This is not used for training but only for actually using the method
-    def simulate(self, dw0, V,T,Er,cortim,total_time,step,reps,initially_excited_site,Hfull,device="cpu",T_correction="ML",saveCoherence=False,explicitTemp="None",saveU=False,memory_mapped=False):
+    def simulate(self, dw0, V,T,Er,cortim,total_time,step,reps,initially_excited_site,Hfull,device="cpu",T_correction="ML",saveCoherence=False,explicitTemp="None",saveU=False,memory_mapped=False,save_Interval=10):
         #Since this is not for training we don't need to keep track of the gradients
         with torch.no_grad():
             
@@ -360,13 +360,13 @@ class MLNISE(nn.Module):
 
                 ####run NISE without T correction
             if T_correction in ["Jansen","ML"]:
-                res, coherence ,U= self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,"None",True,explicitTemp,True,memory_mapped=memory_mapped)                
+                res, coherence ,U= self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,"None",True,explicitTemp,True,memory_mapped=memory_mapped,save_Interval=1)                
                 lifetimes=estimate_lifetime(U, step[0])
                 print(lifetimes)
             
 
                 
-            res, coherence ,U = self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,T_correction,True,explicitTemp,saveU,memory_mapped=memory_mapped)
+            res, coherence ,U = self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,T_correction,True,explicitTemp,saveU,memory_mapped=memory_mapped,save_Interval=save_Interval)
             # Now the return will be a batch of population dynamics and we only need to take the average of those
 
             totalres+=res
