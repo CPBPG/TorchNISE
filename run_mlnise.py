@@ -1,18 +1,21 @@
 """
 This file implements various Running MLNISE for different options from command line.
 """
-import numpy as np
-from MLNISE_Model import MLNISE
-import torch
-from FFTNoiseGen import noise_algorithm
-import matplotlib.pyplot as plt
 import argparse
 import functools
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
 from scipy import signal
-from scipy.signal import correlate
 from scipy.interpolate import interp1d
-import ExampleSpectralFunctions
-from PytorchUtility import  tensor_to_mmap, create_empty_mmap_tensor
+from scipy.signal import correlate
+
+from mlnise.example_spectral_functions import spectral_Drude
+from mlnise.fft_noise_gen import noise_algorithm
+from mlnise.mlnise_model import MLNISE
+from mlnise.pytorch_utility import create_empty_mmap_tensor, tensor_to_mmap
+
 k = 8.6173303E-5 # in eV/K.
 hbar = 0.658211951 #in eV fs
 cm_to_eV=1.23984E-4
@@ -398,7 +401,7 @@ if __name__ == "__main__":
             raise NotImplementedError(f"Type {pigment['Type']} not available")
     """
 
-    spectral_func=functools.partial(ExampleSpectralFunctions.spectral_Drude,gamma=gamma,strength=E_reorg,k=k,T=T)
+    spectral_func=functools.partial(spectral_Drude,gamma=gamma,strength=E_reorg,k=k,T=T)
     device="cpu"
     memory_mapped=True
 
