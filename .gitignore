@@ -1,5 +1,6 @@
 #Project specific
 data/
+test_scripts/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
