@@ -25,6 +25,10 @@ or run the sample python script
 python run_mlnise.py
 ```
 
+this will generate the following graph:
+
+![Sample graph showing the population dynamics](images/sample_graph.png)
+
 
 ## License
 
