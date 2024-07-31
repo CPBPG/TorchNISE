@@ -11,7 +11,7 @@ setup(
     description="MLNISE is machine learning based implementation of the NISE algorithm for non markovian dynamics. ",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/ausstein/MLNISE",  # Replace with your project's URL
+    url="https://github.com/ausstein/MLNISE",  
     packages=find_packages(),  # Automatically find packages in the project
     classifiers=[
         "Programming Language :: Python :: 3",
