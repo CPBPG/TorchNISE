@@ -4,6 +4,7 @@ import weakref
 import tempfile
 import torch
 import warnings
+import glob
 # Utility Functions
 def renorm(phi: torch.Tensor, eps: float = 1e-8, dim: int = -1) -> torch.Tensor:
     """
@@ -195,6 +196,15 @@ def is_memory_mapped(tensor) -> bool:
         return False
     return storage.filename is not None
 
+def clean_temp_files():
+    """
+    Remove all temporary .bin files.
+    """
+    temp_files = glob.glob(os.path.join(tempfile.gettempdir(), '*.bin'))
+    print("Deleting temporary files:", temp_files)
+    for file in temp_files:
+        os.remove(file
+    )
 
 # Check if torch.Tensor already has the to_mmap method
 if hasattr(torch.Tensor, 'to_mmap'):
