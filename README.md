@@ -36,7 +36,3 @@ this will generate the following graph:
 
 ![Sample graph showing the population dynamics](images/sample_graph.png)
 
-
-## License
-
-[MIT](https://choosealicense.com/licenses/mit/)
