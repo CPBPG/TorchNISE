@@ -156,7 +156,7 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
     elif mode =="absorption":
         #all_meancoherence=[]
         all_absorb_time=[]
-    saveU = True #mode =="absorption"#
+    saveU = mode =="absorption"#True #
 
     weights = []
     all_output = []

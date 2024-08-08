@@ -1,5 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -90,10 +90,10 @@ def estimate_lifetime(U, delta_t):
         func = lambda tau: objective(tau, i)
         tolerance = 0.1 * delta_t
         tau_opt = golden_section_search(func, delta_t, 100 * timesteps * delta_t, tolerance)
-        plt.plot(torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real,label="NISE")
-        plt.plot((1 - 1/n) * torch.exp(-time_array/tau_opt) + 1/n,label="fit")
-        plt.legend()
-        plt.show()
+        #plt.plot(torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real,label="NISE")
+        #plt.plot((1 - 1/n) * torch.exp(-time_array/tau_opt) + 1/n,label="fit")
+        #plt.legend()
+        #plt.show()
         lifetimes[i] = tau_opt
 
     return lifetimes
