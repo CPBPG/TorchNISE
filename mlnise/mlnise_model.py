@@ -87,6 +87,7 @@ def estimate_lifetime(U, delta_t):
 
     # Estimate lifetime for each state
     for i in range(n):
+        
         func = lambda tau: objective(tau, i)
         tolerance = 0.1 * delta_t
         tau_opt = golden_section_search(func, delta_t, 100 * timesteps * delta_t, tolerance)
@@ -95,7 +96,7 @@ def estimate_lifetime(U, delta_t):
         #plt.legend()
         #plt.show()
         lifetimes[i] = tau_opt
-
+        print(f"lifetime state {i+1} {tau_opt} fs")
     return lifetimes
 
 
@@ -163,9 +164,9 @@ class MLNISE(nn.Module):
         if saveCoherence:
 
             if memory_mapped:
-                CohLoc=create_empty_mmap_tensor((batchsize,int(total_time[0]/dt[0])+1,N,N),dtype=torch.complex64)
+                CohLoc=create_empty_mmap_tensor((batchsize,int(total_time[0]/dt[0]/save_Interval)+1,N,N),dtype=torch.complex64)
             else:
-                CohLoc=torch.zeros(batchsize,int(total_time[0]/dt[0])+1,N,N,device="cpu",dtype=torch.complex64)
+                CohLoc=torch.zeros(batchsize,int(total_time[0]/dt[0]/save_Interval)+1,N,N,device="cpu",dtype=torch.complex64)
 
         H=Hfull[:,0,:,:].clone().to(device=device) #grab the 0th timestep [all batches : 0th timestep  : all sites : all sites]
 
@@ -368,8 +369,8 @@ class MLNISE(nn.Module):
 
                 ####run NISE without T correction
             if T_correction in ["Jansen","ML"]:
-                res, coherence ,U= self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,"None",True,explicitTemp,True,memory_mapped=memory_mapped,save_Interval=1)
-                lifetimes=estimate_lifetime(U, step[0])
+                res, coherence ,U= self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,"None",True,explicitTemp,True,memory_mapped=memory_mapped,save_Interval=save_Interval)
+                lifetimes=estimate_lifetime(U, step[0]*save_Interval)
                 print(lifetimes)
 
 
@@ -404,7 +405,7 @@ class MLNISE(nn.Module):
             if T_correction in ["Jansen","ML"]:
                 lifetimes=lifetimes*5
                 print(lifetimes)
-                mytime=torch.arange(0,total_time[0]+step[0],step[0])
+                mytime=torch.arange(0,total_time[0]+step[0]*save_Interval,step[0]*save_Interval)
                 expratio=torch.exp(-mytime/lifetimes[0])
                 newres=meanres.clone()
                 newres_Matrix=meanres.clone()

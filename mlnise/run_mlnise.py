@@ -67,7 +67,13 @@ def gen_noise(spectral_funcs,dt,shape,memory_mapped=False):
         raise ValueError(f"gen_noise requres a shape tuple with (reals,steps,n_sites) but a tuple of size {len(shape)} was given")
     reals,steps,n_sites = shape
     if len(spectral_funcs)==1:
-        return torch.tensor(noise_algorithm(shape,dt,spectral_funcs[0],axis=1))
+        if memory_mapped:
+            noise= create_empty_mmap_tensor(shape)
+        else:
+            noise=torch.zeros(shape)
+        for i in range(shape[-1]):
+            noise[:,:,i]= torch.tensor(noise_algorithm((reals,steps),dt,spectral_funcs[0],axis=1))
+        return noise
     elif len(spectral_funcs)==n_sites:
         if memory_mapped:
             noise= create_empty_mmap_tensor(shape)
@@ -114,10 +120,11 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
                 chunk_Hfull[j, :, :, :] = torch.tensor(H_0[window * H_index:window * H_index + total_steps, :, :])
         else:
             print("generating noise")
-            if memory_mapped:
-                mynoise = tensor_to_mmap(torch.tensor(gen_noise(spectral_funcs,dt,(chunk_size,total_steps,n_state))))
-            else:
-                mynoise = torch.tensor(gen_noise(spectral_funcs,dt,(chunk_size,total_steps,n_state)))
+            mynoise = gen_noise(spectral_funcs,dt,(chunk_size,total_steps,n_state),memory_mapped=memory_mapped)
+            #if memory_mapped:
+            #    mynoise = tensor_to_mmap(torch.tensor(gen_noise(spectral_funcs,dt,(chunk_size,total_steps,n_state),memory_mapped=memory_mapped)))
+            #else:
+            #    mynoise = torch.tensor(gen_noise(spectral_funcs,dt,(chunk_size,total_steps,n_state)))
             print("building H")
             chunk_Hfull[:] = H_0
             for i in range(n_state):
@@ -128,7 +135,8 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
                 plt.show()
                 plt.close()"""
                 chunk_Hfull[:, :, i, i] += mynoise[:, :, i]
-                """plt.plot(chunk_Hfull[0, :, i, i])
+                """
+                plt.plot(chunk_Hfull[0, :, i, i])
                 plt.show()
                 plt.close()"""
 
