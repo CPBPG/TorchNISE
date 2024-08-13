@@ -50,6 +50,8 @@ def noise_algorithm(shape, dt, spectral_func,axis=-1, sample_dist=None, discard_
      Returns:
      - np.ndarray: Time-correlated noise with the specified shape.
      """
+    #get positive axis
+    axis=axis%len(shape)
     steps = shape[axis]
     if discard_half:
         extended_shape = list(shape)

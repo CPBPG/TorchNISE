@@ -27,18 +27,19 @@ tau=100
 Er=100
 H_0=torch.tensor(H,dtype=torch.float)
 model=mlnise.mlnise_model.MLNISE()
-reals=4000
+reals=10000
 dt=1
 initiallyExcitedState=0
-total_time=7500
+total_time=25000
 spectral_funcs=[spectralfunc]
 
 #trajectory_time=None, T_correction='None', maxreps=1000000, use_filter=False, filter_order=10, filter_cutoff=0.1, mode="population",mu=None,device="cpu",memory_mapped=False,save_Interval=10
 device="cpu"
-T_correction='Jansen'
+T_correction='None'
 save_Interval=10
 memory_mapped=True
-avg_output, avg_oldave, avg_newave,avg_absorb_time,x_axis, absorb_f = mlnise.run_mlnise.RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, total_time, spectral_funcs,T_correction=T_correction,save_Interval=save_Interval,memory_mapped=memory_mapped,device=device)
+maxreps=1000
+avg_output, avg_oldave, avg_newave,avg_absorb_time,x_axis, absorb_f = mlnise.run_mlnise.RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, total_time, spectral_funcs,T_correction=T_correction,save_Interval=save_Interval,memory_mapped=memory_mapped,device=device,maxreps=maxreps)
 
 for i in range(0,n_state):
     plt.plot(avg_output[:,i])
