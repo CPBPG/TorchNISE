@@ -1,7 +1,7 @@
 import mlnise
 import numpy as np
 import matplotlib.pyplot as plt
-from mlnise.example_spectral_functions import spectral_Log_Normal_Lorentz,spectral_Lorentz
+from mlnise.example_spectral_functions import spectral_Log_Normal_Lorentz,spectral_Lorentz,spectral_Drude
 import functools
 from mlnise.fft_noise_gen import noise_algorithm
 import tqdm
@@ -26,7 +26,7 @@ Wk=Wk*cm_to_eV/hbar
 
 
 total_time=100000
-step=1
+step=10
 #number of realizations of the noise
 reals = 1
 #Temperature of the noise in K
@@ -38,6 +38,7 @@ w_c=38*cm_to_eV/hbar
 Gammak= 0.0009419458262008981
 spectralfunc=functools.partial(spectral_Log_Normal_Lorentz,Wk=Wk,Sk=Sk,hbar=hbar,k=k,T=T,Gammak=Gammak,S_HR=S_HR,sigma=sigma,w_c=w_c)
 #spectralfunc=functools.partial(spectral_Lorentz,Wk=Wk,Sk=Sk,hbar=hbar,k=k,T=T,Gammak=Gammak)
+#spectralfunc=functools.partial(spectral_Drude, gamma=1/100, strength=100*cm_to_eV, k=k, T=T)
 Generated_Noise=noise_algorithm((reals,total_time//step), step,spectralfunc,save=True,save_name=save_name)
 from scipy.optimize import minimize
 
@@ -87,11 +88,14 @@ def SD_Reconstruct_FFT(noise,dt,T,minW=None,maxW=None,cutoff=None):
     
     auto_step=np.copy(auto)
     auto_step[cutoff//dt:]=0
-    auto_step=auto_step*np.mean(np.abs(auto))/np.mean(np.abs(auto_step))
     auto_gauss=auto*np.exp(-(t_axis/cutoff)**2)
-    auto_gauss=auto_gauss*np.mean(np.abs(auto))/np.mean(np.abs(auto_gauss))
     auto_exp=auto*np.exp(-(t_axis/cutoff))
-    auto_exp=auto_exp*np.mean(np.abs(auto))/np.mean(np.abs(auto_exp))
+    
+    #rescale
+    #auto_step=auto_step*np.mean(np.abs(auto))/np.mean(np.abs(auto_step))    
+    #auto_gauss=auto_gauss*np.mean(np.abs(auto))/np.mean(np.abs(auto_gauss))    
+    #auto_exp=auto_exp*np.mean(np.abs(auto))/np.mean(np.abs(auto_exp))
+    
     np.save("data/auto.npy",auto)
     np.save("data/auto_gauss.npy",auto_gauss)
     np.save("data/auto_exp.npy",auto_exp)
@@ -119,81 +123,131 @@ def SD_Reconstruct_FFT(noise,dt,T,minW=None,maxW=None,cutoff=None):
     J_new_exp=x_axis*np.fft.fft(concat_auto_exp)[0:len(x_axis)].real*dt/(hbar*2*np.pi*k*T)
     return J_new, x_axis ,J_new_step,J_new_gauss,J_new_exp
 
-def SD_Reconstruct_Super_Resolution(noise, dt, T, freqs=None, gammas=None, eta=1e-9, max_iter=1000):
-    N = len(noise[0,:])
-    reals = len(noise[:,0])
+# Helper functions for TWIST/FISTA
+def soft_thresholding(x, threshold):
+    return np.sign(x) * np.maximum(np.abs(x) - threshold, 0)
+
+def ista(A, b, lambda_, L, max_iter=1000, tol=1e-7):
+    x = np.zeros(A.shape[1])
+    for i in range(max_iter):
+        print(i,np.linalg.norm(A @ x - b),x)
+        x = soft_thresholding(x - (1/L) * A.T @ (A @ x - b), lambda_/L)
+        if np.linalg.norm(A @ x - b) < tol:
+            break
+    return x
+
+def fista(A, b, lambda_, L, max_iter=1000, tol=1e-7):
+    plt.show()
+    x = np.zeros(A.shape[1])
+    y = x.copy()
+    t = 1
+    for i in range(max_iter):
+        print(i,np.linalg.norm(A @ x - b),x)
+        x_old = x.copy()
+        x = soft_thresholding(y - (1/L) * A.T @ (A @ y - b), lambda_/L)
+        t_old = t
+        t = (1 + np.sqrt(1 + 4 * t**2)) / 2
+        y = x + ((t_old - 1) / t) * (x - x_old)
+        if np.linalg.norm(A @ x - b) < tol:
+            break
+    return x
+
+def twist(A, b, lambda_, L, max_iter=1000, tol=1e-7):
+    x = np.zeros(A.shape[1])
+    x_old = x.copy()
+    for i in range(max_iter):
+        print(i,np.linalg.norm(A @ x - b),x)
+        x_new = soft_thresholding(x - (1/L) * A.T @ (A @ x - b), lambda_/L)
+        if i > 0:
+            beta = np.dot(x_new - x, x - x_old) / np.linalg.norm(x - x_old)**2
+            x = x_new + beta * (x_new - x)
+        else:
+            x = x_new
+        x_old = x.copy()
+        if np.linalg.norm(A @ x - b) < tol:
+            break
+    return x
+
+def SD_Reconstruct_SuperResolution(noise, dt, T, method='fista', lambda_=1e-3, L=1.0, max_iter=1000, tol=1e-7, minW=None, maxW=None):
+    N = len(noise[0, :])
+    reals = len(noise[:, 0])
+    N_cut = N//2
+    dw_t = 2 * np.pi / (2 * N_cut * dt)
     
-    if freqs is None:
-        freqs = np.arange(0, 2000, 2)  # Frequency grid in cm^-1
-    if gammas is None:
-        gammas = np.arange(0, 160, 6)  # Damping coefficients in cm^-1
+    if maxW is None:
+        maxW = N_cut * dw_t
+    if minW is None:
+        minW = 0
     
-    dw_t = 2*np.pi/(2*N*dt)
-    w_t = freqs * dw_t
-    x_axis = w_t  # Frequency axis in 1/fs
+    # Define time axis
+    t_axis = dt * np.arange(0, N_cut)
+
     
+    # Define the grid of possible frequencies and damping coefficients
+    frequencies = np.arange(0,0.2,0.002)/hbar
+    dampings = 1/np.arange(0.1, 160, 0.2)
+    A = np.zeros((N_cut, len(frequencies) * len(dampings)))
+    
+    for i, gamma in enumerate(dampings):
+        for j, omega in enumerate(frequencies):
+            A[:, i * len(frequencies) + j] = np.exp(-gamma * t_axis) * np.cos(omega * t_axis)
+            #plt.plot(t_axis[0:50],(np.exp(-gamma * t_axis) * np.cos(omega * t_axis))[0:50])
+            #plt.title(f"gamma {gamma}, omega,{omega}")
+            #plt.show()
+            #plt.close()
+    
+    # Average the autocorrelation function
     def autocorrelation(noise, i):
         cor1 = noise[:, :N-i]
         cor2 = noise[:, i:]
         res = cor1 * cor2
-        C = np.mean(res, axis=1)
-        return C
+        return np.mean(res, axis=1)
     
     def Ccalc(noise):
         C = np.zeros((reals, N))
-        for i in tqdm.tqdm(range(int(N//2))):
+        for i in range(int(N//2)):
             C[:, i] = autocorrelation(noise, i)
         return C
     
-    def expval(noise):
-        summation = Ccalc(noise)
-        return np.mean(summation, axis=0)
+    C = np.mean(Ccalc(noise), axis=0)
+    auto = C[:N_cut]
     
-    C = expval(noise)
-    auto = C[:int(N//2)]
-    t_axis = dt * np.arange(0, len(auto))
     
-    # Construct the measurement matrix A
-    A = np.zeros((len(auto), len(gammas) * len(freqs)))
+    # Solve the sparse recovery problem using FISTA or TWIST
+    if method.lower() == 'fista':
+        lambda_ij = fista(A, auto, lambda_, L, max_iter, tol)
+    elif method.lower() == 'twist':
+        lambda_ij = twist(A, auto, lambda_, L, max_iter, tol)
+    elif method.lower() == 'ista':
+        lambda_ij = ista(A, auto, lambda_, L, max_iter, tol)
+    else:
+        raise ValueError("Method must be 'fista' or 'twist'")
+    #lambda_ij=lambda_ij*0
     
-    for k, t in enumerate(t_axis):
-        for i, gamma in enumerate(gammas):
-            for j, freq in enumerate(freqs):
-                A[k, i*len(freqs) + j] = np.exp(-gamma * t) * np.cos(freq * t)
+    #lambda_ij[0]=1
+    # Calculate the spectral density using the recovered lambda coefficients
+    J_new = np.zeros_like(frequencies)
+    for i, gamma in enumerate(dampings):
+        for j, omega in enumerate(frequencies):
+            J_new += lambda_ij[i * len(frequencies) + j] * np.sqrt(np.pi) * (
+                (T * frequencies * gamma) / (gamma**2 + (frequencies - omega)**2) +
+                (T * frequencies* gamma) / (gamma**2 + (frequencies + omega)**2)
+            )
     
-    # Define the objective function for super-resolution
-    def objective(lmbda):
-        return np.sum(np.abs(np.gradient(lmbda))) + np.sum(np.abs(lmbda))
-    
-    # Perform the super-resolution optimization
-    result = minimize(lambda lmbda: objective(lmbda), np.zeros(A.shape[1]), method='L-BFGS-B',
-                      constraints={'type': 'eq', 'fun': lambda lmbda: np.linalg.norm(A @ lmbda - auto) - eta},
-                      options={'maxiter': max_iter})
-    
-    lmbda = result.x
-    
-    # Construct the spectral density J(ω)
-    J_new = np.zeros(len(x_axis))
-    for i, gamma in enumerate(gammas):
-        for j, freq in enumerate(freqs):
-            J_new += lmbda[i*len(freqs) + j] * np.sqrt(np.pi) * (T * freq * gamma) / (gamma**2 + (x_axis - freq)**2)
-            J_new += lmbda[i*len(freqs) + j] * np.sqrt(np.pi) * (T * freq * gamma) / (gamma**2 + (x_axis + freq)**2)
-    
-    # Save the reconstructed autocorrelation function and spectral density
-    np.save("data/auto_super_resolution.npy", auto)
-    np.save("data/J_super_resolution.npy", J_new)
-    
-    return J_new, x_axis
-Jw, x ,Jw_step,Jw_gauss,Jw_exp= SD_Reconstruct_FFT(Generated_Noise,step,T,cutoff=1500)
+    return J_new, frequencies*hbar
+
+Jw, x ,Jw_step,Jw_gauss,Jw_exp= SD_Reconstruct_FFT(Generated_Noise,step,T,cutoff=5000)
 ww = x/hbar #
 
 S=spectralfunc(ww)
 SD=S/(2*np.pi*k*T)*ww
-
+plt.plot(x,Jw_gauss/cm_to_eV,label="from noise")
 plt.plot(ww*hbar,SD/cm_to_eV,label="original")
-plt.plot(x,Jw_gauss/cm_to_eV,label="from noise gauss")
-#J_new, x_axis = SD_Reconstruct_Super_Resolution(Generated_Noise, step, T)
-#plt.plot(x_axis,J_new/cm_to_eV,label="from noise super Resolution")
+
+J_new, x_axis = SD_Reconstruct_SuperResolution(Generated_Noise,step,T, method='fista', lambda_=1e-9, L=100000, max_iter=100)
+plt.plot(x_axis,J_new/cm_to_eV,label="from noise super Resolution")
+#plt.xlim(0,0.2)
 plt.legend()
+
 plt.show()
 plt.close()
