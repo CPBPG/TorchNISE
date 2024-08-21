@@ -26,6 +26,31 @@ def spectral_Drude_Lorentz_Heom(w,Omegak,lambdak,hbar,k,T,vk): #drude spectral d
         for i in range(len(Omegak)):
             S += 2*k*T*vk[i]*lambdak[i]/((Omegak[i]-w)**2+vk[i]**2)
             S += 2*k*T*vk[i]*lambdak[i]/((Omegak[i]+w)**2+vk[i]**2)
+        
+
+        return S
+def spectral_Drude_Lorentz_Heom_thermal(w,Omegak,lambdak,hbar,k,T,vk): #drude spectral density
+        #converting the frequencies to angular frequencies. Update: done already on the definition as requested by professor        
+        cm_to_eV=1.23984E-4
+        hbar =hbar/cm_to_eV
+        S = 0
+        for i in range(len(Omegak)):
+            S += 2*k*T*vk[i]*lambdak[i]/((Omegak[i]-w)**2+vk[i]**2)
+            S += 2*k*T*vk[i]*lambdak[i]/((Omegak[i]+w)**2+vk[i]**2)
+        x=hbar*np.abs(w)/(k*T)  
+        thermal=np.tanh(x/2)/(x/2)
+        thermal[np.isnan(thermal)]=1
+        S=S*thermal
+        #print(k*T)
+        #print(np.min(hbar*np.abs(w)))
+        #print(np.max(hbar*np.abs(w)))
+        
+        
+        #import matplotlib.pyplot as plt
+        #plt.plot(w,thermal)
+        #plt.show()
+        #plt.close()
+        
         return S
 def spectral_Log_Normal(w,S_HR,sigma,w_c,k,T,hbar):
     S=np.sqrt(2*np.pi)*k*T*S_HR*hbar/sigma*np.exp(-(np.log(w/w_c))**2/(2*sigma**2))    

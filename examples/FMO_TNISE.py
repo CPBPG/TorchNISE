@@ -27,10 +27,10 @@ tau=100
 Er=100
 H_0=torch.tensor(H,dtype=torch.float)
 model=mlnise.mlnise_model.MLNISE()
-reals=10000
+reals=100
 dt=1
 initiallyExcitedState=0
-total_time=25000
+total_time=250
 spectral_funcs=[spectralfunc]
 
 #trajectory_time=None, T_correction='None', maxreps=1000000, use_filter=False, filter_order=10, filter_cutoff=0.1, mode="population",mu=None,device="cpu",memory_mapped=False,save_Interval=10

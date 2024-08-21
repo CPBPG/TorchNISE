@@ -171,7 +171,7 @@ def twist(A, b, lambda_, L, max_iter=1000, tol=1e-7):
 def SD_Reconstruct_SuperResolution(noise, dt, T, method='fista', lambda_=1e-3, L=1.0, max_iter=1000, tol=1e-7, minW=None, maxW=None):
     N = len(noise[0, :])
     reals = len(noise[:, 0])
-    N_cut = N//2
+    N_cut = 500
     dw_t = 2 * np.pi / (2 * N_cut * dt)
     
     if maxW is None:
@@ -243,7 +243,8 @@ S=spectralfunc(ww)
 SD=S/(2*np.pi*k*T)*ww
 plt.plot(x,Jw_gauss/cm_to_eV,label="from noise")
 plt.plot(ww*hbar,SD/cm_to_eV,label="original")
-
+plt.show()
+plt.close()
 J_new, x_axis = SD_Reconstruct_SuperResolution(Generated_Noise,step,T, method='fista', lambda_=1e-9, L=100000, max_iter=100)
 plt.plot(x_axis,J_new/cm_to_eV,label="from noise super Resolution")
 #plt.xlim(0,0.2)
