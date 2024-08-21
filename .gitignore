@@ -1,6 +1,8 @@
 #Project specific
 **/data/
 test_scripts/
+*.npy
+*.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -5,9 +5,20 @@ import functools
 from mlnise.fft_noise_gen import noise_algorithm
 import torch
 import tqdm
+import warnings
+from scipy.optimize import nnls
 
 cm_to_eV=1.23984E-4
-
+def nnls_pyytorch(A,b):
+    A_np = A.detach().cpu().numpy()
+    b_np = b.detach().cpu().numpy()
+    # Solve the NNLS problem
+    x_nnls, _ = nnls(A_np, b_np)
+    
+    # Convert the result back to a PyTorch tensor
+    x_nnls_torch = torch.from_numpy(x_nnls).to(A.device).to(A.dtype)
+    return x_nnls_torch
+    
 #Paper Method Autocorrelation function 
 def autocorrelation(noise,i,N): #matrix implementation of the autocorrelation calculation. 
     cor1=noise[:,:N-i]
@@ -86,25 +97,27 @@ def tv_norm_2d(lambda_ij):
          torch.sum(torch.abs(lambda_ij[:-1, :] - lambda_ij[1:, :]))
     return tv
 
-def objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty):
+def objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,negative_penalty,ljnorm_penalty, j):
     """Objective function with TV norm, L1 norm, and penalty for constraint violation."""
     tv = tv_norm_2d(lambda_ij)
     l1_norm = torch.sum(torch.abs(lambda_ij)) #torch.sum(torch.sqrt(torch.abs(lambda_ij)))
+    lj_norm = torch.sum(torch.abs(lambda_ij)**j)
     negative_penalty= -torch.sum(lambda_ij)+torch.sum(torch.abs(lambda_ij))
     penalty = solution_penalty * 0.5 * torch.norm(A @ lambda_ij.flatten() - C) ** 2
-    result= sparcity_penalty*tv + l1_norm_penalty*l1_norm + 1000*negative_penalty+ penalty
+    result= sparcity_penalty*tv + l1_norm_penalty*l1_norm +ljnorm_penalty*lj_norm + negative_penalty*negative_penalty+ penalty
     #print(f"penalty {100*penalty/result:.3f}% Variation {100*1/mu*tv/result:.3f}%  l1_norm {100*l1_norm/result:.3f}%")
     return result
 
-def objective_function_no_penalty(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty):
+def objective_function_no_penalty(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty,negative_penalty,ljnorm_penalty, j):
     """Objective function with TV norm, L1 norm for constraint violation."""
     tv = tv_norm_2d(lambda_ij)
     l1_norm = torch.sum(torch.abs(lambda_ij)) #torch.sum(torch.sqrt(torch.abs(lambda_ij)))
+    lj_norm = torch.sum(torch.abs(lambda_ij)**j)
     negative_penalty= -torch.sum(lambda_ij)+torch.sum(torch.abs(lambda_ij))
-    result= sparcity_penalty*tv + l1_norm_penalty*l1_norm  + 1000*negative_penalty
+    result= sparcity_penalty*tv + l1_norm_penalty*l1_norm  +ljnorm_penalty*lj_norm + negative_penalty*negative_penalty
     return result
 
-def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty, eta, max_iter=1000, tol=1e-6, lr=0.01, device='cuda',initial_guess=None):
+def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,negative_penalty, ljnorm_penalty, j, eta, max_iter=1000, tol=1e-6, lr=0.01, device='cuda',initial_guess=None):
     """Optimization loop using PyTorch."""
     
     num_k, num_i, num_j = A.shape
@@ -125,21 +138,21 @@ def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty, e
     #optimizer = torch.optim.Adam([lambda_ij], lr=lr)
     optimizer = torch.optim.LBFGS([lambda_ij],lr=lr,line_search_fn="strong_wolfe") #
     min_objective_value=torch.inf
-    no_improvement_iters=0
+    
     return_lambda=lambda_ij
     for iter in range(max_iter):
         optimizer.zero_grad()  # Clear previous gradients
 
         # Compute the objective function
-        obj_value = objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty)
-        obj_value_no_penalty =  objective_function_no_penalty(lambda_ij, A, C,sparcity_penalty, l1_norm_penalty)
+        obj_value = objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,negative_penalty,ljnorm_penalty, j)
+        obj_value_no_penalty =  objective_function_no_penalty(lambda_ij, A, C,sparcity_penalty, l1_norm_penalty,negative_penalty,ljnorm_penalty, j)
         # Perform a backward pass to compute gradients
         obj_value.backward()
         def closure():
             optimizer.zero_grad()  # Clear previous gradients
     
             # Compute the objective function
-            obj_value = objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty)
+            obj_value = objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,negative_penalty,ljnorm_penalty, j)
             obj_value.backward()  # Perform a backward pass to compute gradients
             
             return obj_value
@@ -161,7 +174,8 @@ def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty, e
         #    rho /= 1.001  # Decrease the penalty parameter
 
         # Print or log the objective value and constraint violation
-        print(f"Iteration {iter}: Objective value = with pen {obj_value.item():.6f} without pen {obj_value_no_penalty.item():.6f}, Constraint violation = {constraint_violation> eta}, {constraint_violation:.6f}")
+        #if iter%10==0:
+        #    print(f"Iteration {iter}: Objective value = with pen {obj_value.item():.6f} without pen {obj_value_no_penalty.item():.6f}, Constraint violation = {constraint_violation> eta}, {constraint_violation:.6f}")
         if obj_value.item()<min_objective_value:
             min_objective_value=obj_value.item()
             no_improvement_iters=0
@@ -178,6 +192,52 @@ def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty, e
 
     return return_lambda
 
+def optimize_lambda_nnls(A, b,initial_guess=None, max_iter=1000,lr=0.01):
+    def A_transpose(y):
+        return A.T @ y
+    lambda_ij = A_transpose(b) if initial_guess is None else initial_guess
+    
+    lambda_ij=lambda_ij.detach().clone()
+    lambda_ij.requires_grad=True
+    return_lambda = lambda_ij 
+    optimizer = torch.optim.LBFGS([lambda_ij],lr=lr,line_search_fn="strong_wolfe") 
+    A @ torch.abs(lambda_ij)
+    def closure():
+        optimizer.zero_grad()
+        loss = torch.norm(A @ torch.abs(lambda_ij) - b) ** 2
+        loss.backward()
+        return loss
+    min_loss=torch.inf
+    no_improvement_iters=0
+    for i in range(max_iter):
+        
+        optimizer.step(closure)
+        loss=closure().item()
+        if i % 10 == 0:
+            print(f'Step {i}, Loss: {loss}')
+        if loss<min_loss:
+            min_loss=loss
+            no_improvement_iters=0
+            return_lambda=lambda_ij
+        else:
+            no_improvement_iters +=1
+        if no_improvement_iters >20:
+            print("no improvement for 20 iters")
+            break
+    return torch.abs(return_lambda).detach()
+    
+
+def adjust_tensor_length(a, l):
+    if len(a) == l:
+        return a
+    elif len(a) > l:
+        # Trimming the tensor if it's longer than the desired length
+        a = a[:l]
+    else:
+        # Padding the tensor with zeros if it's shorter than the desired length
+        a = torch.cat([a, torch.zeros(l - len(a),device=a.device)])
+
+    return a
 
 def ensure_tensor_on_device(array, device='cuda',dtype=torch.float):
     if isinstance(array, np.ndarray):
@@ -188,185 +248,141 @@ def ensure_tensor_on_device(array, device='cuda',dtype=torch.float):
         return array.to(device).to(dtype)
     else:
         raise TypeError("Input must be a numpy array or a PyTorch tensor.")
-        
-        
-def SD_Reconstruct_SuperResolution(auto, dt, T,hbar,k, sparcity_penalty=1, l1_norm_penalty=1, solution_penalty=10000, lr=0.01, max_iter=1000, eta=1e-7, tol=1e-7, minW=None, maxW=None, device='cuda',cutoff=None,sample_frequencies=None):
+
+def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_norm_penalty=1, 
+                                   solution_penalty=10000,negative_penalty=1,ljnorm_penalty=0 ,j=0.5, lr=0.01, max_iter=1000, eta=1e-7, 
+                                   tol=1e-7, device='cuda', cutoff=None, 
+                                   sample_frequencies=None, top_n=False, second_optimization=False,chunk_memory=1e9,auto_length=None):
+    """
+    Reconstruct the super-resolution spectral density from the autocorrelation function.
+
+    Parameters:
+        auto (torch.Tensor): Autocorrelation function.
+        dt (float): Time step between autocorrelation points.
+        T (float): Temperature.
+        hbar (float): Reduced Planck constant.
+        k (float): Boltzmann constant.
+        sparcity_penalty (float): Penalty term for sparsity in the solution.
+        l1_norm_penalty (float): L1 norm penalty for regularization.
+        solution_penalty (float): Penalty for the solution norm.
+        negative_penalty (float): Penalty for negative peaks.
+        ljnorm_penalty (float): L_j norm penalty for regularization.
+        j (float): j determining the L_j norm.
+        lr (float): Learning rate for the optimization algorithm.
+        max_iter (int): Maximum number of iterations for the optimization.
+        eta (float): Regularization term for optimization.
+        tol (float): Tolerance for convergence in the optimization.
+        device (str): Device for computation ('cuda' or 'cpu').
+        cutoff (float, optional): Cutoff for damping. Defaults to None.
+        sample_frequencies (torch.Tensor, optional): Frequencies for sampling the spectral density. Defaults to None.
+        top_n (int): If not False, only the top n coefficients are used. Defaults to False.
+        second_optimization (bool): If True, a second optimization step is performed using top n coefficients. Defaults to False.
+        chunk_memory (float): The maximum amount of memory (in bytes) to use for each chunk. Defaults to 1GB.
+        auto_length (float): if not False: length of autocorrelation in fs for the returned autocorrelation and second optimizazion fitting, will be zero padded or cut
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray]: Reconstructed spectral density, sampled frequencies, and super-resolved autocorrelation function.
+    """
     auto = ensure_tensor_on_device(auto, device=device)
-    
+    if auto_length:
+        auto = adjust_tensor_length(auto, auto_length//dt)
     
     N = len(auto)
-    N_cut = int(cutoff/dt)# N//2 #
-    dw_t = 2 * np.pi / (2 * N_cut * dt)
+    N_cut = int(cutoff / dt) if cutoff else N // 2
     
-    if maxW is None:
-        maxW = N_cut * dw_t
-    if minW is None:
-        minW = 0
-    
-    # Define time axis
+
     t_axis = dt * torch.arange(0, N_cut, device=device)
+    t_axis_full = dt * torch.arange(0, N, device=device)
+    frequencies = torch.arange(0, 0.2, 0.0001, device=device) / hbar
+    dampings = torch.arange(1, 160, 5, device=device) * cm_to_eV / hbar
 
-    # Define the grid of possible frequencies and damping coefficients
-    frequencies = torch.arange(0, 0.2, 0.0001, device=device)/ hbar
-    dampings = (torch.arange(1, 160, 5, device=device))*cm_to_eV/hbar
-    #print(t_axis.shape)
-    #print(dampings.shape)
-    #print(frequencies.shape)
-    dampings = dampings.unsqueeze(1)  # Shape: (len(dampings), 1)
-    frequencies = frequencies.unsqueeze(1)  # Shape: (1, len(frequencies)) 
-    t_axis = t_axis.unsqueeze(0)  # Shape: (1, N_cut)
-    
-    # Calculate the damping term: (len(dampings), N_cut)
-    damping_term = torch.exp(-dampings * t_axis)
-    
-    # Calculate the frequency term: (len(frequencies), N_cut)
-    frequency_term = torch.cos(frequencies * t_axis)
-    
-    # Perform an outer product and reshape to form the matrix A
-    # Now combine them using broadcasting, resulting in a tensor of shape (len(dampings), len(frequencies), N_cut)
-    A = damping_term.unsqueeze(1) * frequency_term.unsqueeze(0)
+    damping_term = torch.exp(-dampings[None, :] * t_axis[:, None])
+    frequency_term = torch.cos(frequencies[None, :] * t_axis[:, None])
 
-    # Finally, reshape A to have the shape (N_cut, len(dampings) , len(frequencies))
-    A = A.permute(2, 0, 1)
-    # Average the autocorrelation function    
-    auto_orig=torch.clone(auto)
+    A = damping_term[:, :, None] * frequency_term[:, None, :]
+
+    auto_orig = auto.clone()
     auto = auto[:N_cut]
-    #print(auto.shape)
-    #if cutoff:
-    #    print("applying damping")
-    #    auto=auto*torch.exp(-(t_axis.squeeze()/cutoff)**2)
-    #print(auto.shape)
-    lambda_ij=optimize_lambda(A, auto, sparcity_penalty, l1_norm_penalty, solution_penalty, eta,  max_iter=max_iter, tol=tol, lr=lr, device=device)
-    A = A.reshape(N_cut, len(dampings) * len(frequencies) )
-    
-    # Solve the sparse recovery problem using FISTA or TWIST
-    
-    
-    # Calculate the spectral density using the recovered lambda coefficients
-    # Reshape dampings and lambda_ij to allow broadcasting
-    # Reshape dampings and lambda_ij to allow broadcasting
-    frequencies = frequencies.squeeze()
-    #frequencies = frequencies.unsqueeze(0)
-    #plt.plot((auto).cpu().numpy(),label="auto")
-    #plt.plot((A@lambda_ij.flatten()).detach().cpu().numpy(),label="superresolution")
-   
-    top_n=True
-    
-    if top_n:
-        n = 500  # Replace with the desired number of largest values
-        _, indices = torch.topk(torch.abs(lambda_ij.flatten()), n)
-        
-        #lambda_ij_new = lambda_ij[indices] 
-        
-        
-        second_optimization=True
-        if second_optimization:  
-            t_axis = dt * torch.arange(0, N, device=device)
-            frequencies = torch.arange(0, 0.2, 0.0001, device=device)/ hbar
-            dampings = (torch.arange(1, 160, 5, device=device))*cm_to_eV/hbar
-            
-            original_indices = torch.unravel_index(indices, lambda_ij.shape)
-            A_new=torch.zeros((len(t_axis),n),device=device)
-            for k in range(n):
-                i=original_indices[0][k]
-                j = original_indices[1][k]
-                A_new[:,k]=torch.exp(-dampings[i] * t_axis)*torch.cos(frequencies[j] * t_axis)
-            #A_new = A[:, indices]
-            print(A_new.shape)
-            print(auto.shape)
-            lambda_ij_new = torch.linalg.lstsq(A_new, auto_orig)[0]
-            lambda_ij=torch.zeros_like(lambda_ij,device=device)
-            lambda_ij.flatten()[indices]=lambda_ij_new
-            #dampings = dampings.unsqueeze(1)  # Shape: (len(dampings), 1)
-            #frequencies = frequencies.unsqueeze(0)  # Shape: (1, len(frequencies)) 
-            #t_axis = t_axis.unsqueeze(0)  # Shape: (1, N_cut)
-            #plt.plot((A@lambda_ij.flatten()).detach().cpu().numpy(),label="lstsqs")
-        else:
-            lambda_zero=torch.zeros_like(lambda_ij,device=device)
-            lambda_zero.flatten()[indices]=lambda_ij.flatten()[indices]
-            lambda_ij=lambda_zero
-            #plt.plot((A@lambda_ij.flatten()).detach().cpu().numpy(),label=f"top {n}")
-    #plt.legend()
-    #plt.show()
-    #plt.close()
-    
-    lambda_ij = lambda_ij.view(len(dampings), len(frequencies))  # Ensure lambda_ij matches the reshaped sizes
-    lambda_ij=lambda_ij.unsqueeze(0)
-    frequencies = frequencies.unsqueeze(0)
-    dampings=dampings.unsqueeze(0)
-    if sample_frequencies is None:
-        sample_frequencies=torch.arange(0, 0.2, 0.00001, device=device)/ torch.tensor(hbar, device=device)
-    else:
-        sample_frequencies=ensure_tensor_on_device(sample_frequencies, device=device)
-    
-    J_new=torch.zeros_like(sample_frequencies)
-    n=1
-    with torch.no_grad():
-        frequencies = torch.arange(0, 0.2, 0.0001, device=device)/ hbar
-        dampings = (torch.arange(1, 160, 5, device=device))*cm_to_eV/hbar
-        
-        frequencies = frequencies.unsqueeze(0).unsqueeze(0)
-        dampings = dampings.unsqueeze(1).unsqueeze(0)
-        
-        
-        for i in range(0, sample_frequencies.shape[0], n):
-        # Extract the current batch of sample frequencies
-            min_i=i
-            max_i= min(i+n,sample_frequencies.shape[0])
-            sample_frequencies_batch = sample_frequencies[min_i:max_i]
-        
-            # Expand dimensions to match the dampings and frequencies shapes
-            sample_frequencies_batch = sample_frequencies_batch.unsqueeze(1).unsqueeze(1)
 
-            # Calculate the numerator for both terms in the sum
-            T_frequencies_gamma = sample_frequencies_batch * dampings * np.sqrt(np.pi) * 2
-            
-            # Compute the two parts of the summation for this batch
-            term1 = T_frequencies_gamma / (dampings**2 + (sample_frequencies_batch - frequencies)**2)
-            term2 = T_frequencies_gamma / (dampings**2 + (sample_frequencies_batch + frequencies)**2)
-            
-            # Sum both terms and multiply by the corresponding lambda_ij
-            J_new_batch = (lambda_ij * (term1 + term2)).sum(dim=[1, 2]) * torch.sqrt(torch.tensor(torch.pi, device=lambda_ij.device))
-            
-            # Accumulate the results
-            J_new[min_i:max_i] = J_new_batch    
+    lambda_ij = optimize_lambda(A, auto, sparcity_penalty, l1_norm_penalty, solution_penalty,
+                                negative_penalty, ljnorm_penalty, j, eta, max_iter=max_iter, 
+                                tol=tol, lr=lr, device=device)
+    if top_n:
+        if top_n>len(dampings) * len(frequencies):
+            warnings.warn("top_n larger than total elements, using all available coefficients.")
+            top_n=len(dampings) * len(frequencies)
+        _, indices = torch.topk(lambda_ij.flatten(), top_n) #removed abs since we don't want negative peaks anyway
         
+        if second_optimization:         
+            original_indices = torch.unravel_index(indices, lambda_ij.shape)
+            A_new = torch.zeros((len(t_axis_full), top_n), device=device)
+            for k in range(top_n):
+                i = original_indices[0][k]
+                j = original_indices[1][k]
+                A_new[:, k] = torch.exp(-dampings[i] * t_axis_full) * torch.cos(frequencies[j] * t_axis_full) 
+            
+            lambda_ij_new = optimize_lambda_nnls(A_new,auto_orig,initial_guess=lambda_ij.flatten()[indices]) #torch.linalg.lstsq(A_new, auto_orig)[0] #
+            lambda_ij_debias = torch.zeros_like(lambda_ij, device=device)
+            lambda_ij_debias.flatten()[indices] = lambda_ij_new
+        else:
+            lambda_zero = torch.zeros_like(lambda_ij, device=device)
+            lambda_zero.flatten()[indices] = lambda_ij.flatten()[indices]
+            lambda_ij = lambda_zero
     
-    """sample_frequencies=sample_frequencies.unsqueeze(1)
-    sample_frequencies=sample_frequencies.unsqueeze(1)
-    # Calculate the numerator for both terms in the sum
-    print(sample_frequencies.shape)
-    print(dampings.shape)
-    print(frequencies.shape)
-    T_frequencies_gamma =  sample_frequencies * dampings *np.sqrt(np.pi)*2
-    
-    # Compute the two parts of the summation
-    term1 = T_frequencies_gamma / (dampings**2 + (sample_frequencies - frequencies)**2)
-    term2 = T_frequencies_gamma / (dampings**2 + (sample_frequencies + frequencies)**2)
-    
-    # Sum both terms and multiply by the corresponding lambda_ij
-    J_new = (lambda_ij * (term1 + term2)).sum(dim=[1,2]) * torch.sqrt(torch.tensor(torch.pi, device=lambda_ij.device))"""
-    t_axis = dt * torch.arange(0, N, device=device)
-    frequencies = torch.arange(0, 0.2, 0.0001, device=device)/ hbar
-    dampings = (torch.arange(1, 160, 5, device=device))*cm_to_eV/hbar
-    dampings = dampings.unsqueeze(1)  # Shape: (len(dampings), 1)
-    frequencies = frequencies.unsqueeze(1)  # Shape: (1, len(frequencies)) 
-    t_axis = t_axis.unsqueeze(0)  # Shape: (1, N_cut)
-    # Calculate the damping term: (len(dampings), N_cut)
-    damping_term = torch.exp(-dampings * t_axis)
-    
-    # Calculate the frequency term: (len(frequencies), N_cut)
-    frequency_term = torch.cos(frequencies * t_axis)
-    
-    # Perform an outer product and reshape to form the matrix A
-    # Now combine them using broadcasting, resulting in a tensor of shape (len(dampings), len(frequencies), N_cut)
-    if second_optimization:  
-        auto_super=A_new@lambda_ij_new.flatten()
+
+    if sample_frequencies is None:
+        sample_frequencies = torch.arange(0, 0.2, 0.00001, device=device) / hbar
     else:
-        A = damping_term.unsqueeze(1) * frequency_term.unsqueeze(0)
+        sample_frequencies = ensure_tensor_on_device(sample_frequencies, device=device)
+
     
-        # Finally, reshape A to have the shape (N_cut, len(dampings) , len(frequencies))
-        A = A.permute(2, 0, 1).reshape(N, len(dampings) * len(frequencies))
-        auto_super=A@lambda_ij.flatten()
+
+    with torch.no_grad():
+        
+        J_new = torch.zeros_like(sample_frequencies)
+       
+        # Calculate the chunk size that would use less than the specified chunk_memory
+        chunk_size = int(chunk_memory / (3*len(frequencies) * len(dampings) * auto.element_size()))
+        chunk_size = max (chunk_size,1)
+        for i in range(0, sample_frequencies.shape[0], chunk_size):
+            max_idx = min(i + chunk_size, sample_frequencies.shape[0])
+            sample_freq_chunk = sample_frequencies[i:max_idx]
+            T_frequencies_gamma = sample_freq_chunk[:, None, None] * dampings[None, :, None] * np.pi * 2
+
+            term1 = T_frequencies_gamma / (dampings[None, :, None]**2 + (sample_freq_chunk[:, None, None] - frequencies[None, None, :])**2)
+            term2 = T_frequencies_gamma / (dampings[None, :, None]**2 + (sample_freq_chunk[:, None, None] + frequencies[None, None, :])**2)
+
+            J_new[i:max_idx] = (lambda_ij[None, :, :] * (term1 + term2)).sum(dim=[1, 2]) 
+        J_new=J_new.detach().cpu().numpy()
+        
+        auto_super = torch.zeros_like(auto_orig)
+        for i in range(0, len(t_axis_full), chunk_size):
+            max_idx = min(i + chunk_size, t_axis_full.shape[0])
+            damping_term_chunk = torch.exp(-dampings[None, :] * t_axis_full[i:max_idx, None])
+            frequency_term_chunk = torch.cos(frequencies[None, :] * t_axis_full[i:max_idx, None])
+            A_chunk = (damping_term_chunk[:, :, None] * frequency_term_chunk[:, None, :]).reshape(max_idx - i, len(dampings) * len(frequencies))
+            auto_super[i:max_idx] = A_chunk @ lambda_ij.flatten()
+        auto_super = auto_super.detach().cpu().numpy()
+
+        if second_optimization:
+            J_new_debias = torch.zeros_like(sample_frequencies)
+            auto_super_debias = A_new @ lambda_ij_new.flatten()
+            for k in range(top_n):
+                i = original_indices[0][k]
+                j = original_indices[1][k]
+                T_frequencies_gamma= sample_frequencies*dampings[i] * np.pi * 2
+                term1 = T_frequencies_gamma / (dampings[i]**2 + (sample_frequencies - frequencies[j])**2)
+                term2 = T_frequencies_gamma / (dampings[i]**2 + (sample_frequencies + frequencies[j])**2)
+                J_new_debias += lambda_ij_new[k]*(term1 + term2)
+            J_new_debias=J_new_debias.detach().cpu().numpy()
+            auto_super_debias=auto_super_debias.detach().cpu().numpy()
+        else:
+            J_new_debias = None
+            auto_super_debias=None
+            
+        xaxis =    (sample_frequencies * hbar).detach().cpu().numpy()    
     
-    return J_new.detach().cpu().numpy(), (sample_frequencies.squeeze().squeeze() * hbar).detach().cpu().numpy(),auto_super.detach().cpu().numpy()
+        return J_new, xaxis , auto_super , J_new_debias,auto_super_debias
+        
+        
+
