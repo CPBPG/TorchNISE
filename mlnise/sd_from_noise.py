@@ -294,7 +294,7 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
     t_axis = dt * torch.arange(0, N_cut, device=device)
     t_axis_full = dt * torch.arange(0, N, device=device)
     frequencies = torch.arange(0, 0.2, 0.0001, device=device) / hbar
-    dampings = torch.arange(1, 160, 5, device=device) * cm_to_eV / hbar
+    dampings = torch.arange(1, 200, 1, device=device) * cm_to_eV / hbar
 
     damping_term = torch.exp(-dampings[None, :] * t_axis[:, None])
     frequency_term = torch.cos(frequencies[None, :] * t_axis[:, None])

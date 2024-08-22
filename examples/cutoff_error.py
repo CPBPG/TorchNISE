@@ -6,6 +6,7 @@ import functools
 from mlnise.fft_noise_gen import noise_algorithm
 import tqdm
 from mlnise.sd_from_noise import SD_Reconstruct_FFT, get_auto, sd_reconstruct_superresolution
+import torch
 
 k = 8.6173303E-5 # in eV/K. 
 T = 300 #Temperature in K
@@ -64,7 +65,7 @@ for total_time in (100_000,1_000_000):
     autos.append(auto)
 
 
-cutoffs=[5000] #200*np.arange(10,100)
+cutoffs=200*np.arange(10,100)#[5000]#
 
 errors_auto={}
 errors_J={}
@@ -82,10 +83,11 @@ for auto in autos:
             plt.plot(x_axis,J_new,label=f"{damping}")
             print(f"{damping}: errors_auto {np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV} error_J {np.mean(np.abs(SD-J_new))/cm_to_eV}")
         sample_frequencies=x_axis/hbar
+        torch.cuda.empty_cache()
         J_new, x_axis ,auto_damp,J_new_debias,auto_debias=sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=0, l1_norm_penalty=1 ,
-                                           solution_penalty=1e4,negative_penalty=1, ljnorm_penalty=0,j=0.5, lr=10, max_iter=1000, eta=1e-7, 
+                                           solution_penalty=1e5,negative_penalty=1, ljnorm_penalty=0,j=0.5, lr=10, max_iter=1000, eta=1e-7, 
                                            tol=1e-7, device='cuda', cutoff=cutoff, 
-                                           sample_frequencies=x_axis/hbar, top_n=2000, second_optimization=True,chunk_memory=1e9, auto_length=400_000)
+                                           sample_frequencies=x_axis/hbar, top_n=4000, second_optimization=True,chunk_memory=5e8, auto_length=400_000)
         
         errors_auto[f"super_{cutoff}_{len(auto)}"]=np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
         errors_J[f"super_{cutoff}_{len(auto)}"]=np.mean(np.abs(SD-J_new))/cm_to_eV
@@ -122,7 +124,7 @@ for auto in autos:
 
        
 for auto in autos:
-    for damping in ["exp","gauss","step","super"]:
+    for damping in ["exp","gauss","step","super","super_debias"]:
         plot_error=[]
         for cutoff in cutoffs:
             plot_error.append(errors_J[f"{damping}_{cutoff}_{len(auto)}"])
