@@ -331,10 +331,9 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
             lambda_ij = lambda_zero
     elif top_tresh:
 
-        indices = torch.where(lambda_ij.flatten()>top_tresh) #removed abs since we don't want negative peaks anyway
+        indices = torch.where(lambda_ij.flatten()>top_tresh)[0] #removed abs since we don't want negative peaks anyway
         top_n= len(lambda_ij.flatten()[indices])
         print(torch.max(lambda_ij),torch.min(lambda_ij))
-        print(indices, lambda_ij.flatten()[indices])
         print(f'selected {top_n} values')
         if second_optimization:         
             original_indices = torch.unravel_index(indices, lambda_ij.shape)
