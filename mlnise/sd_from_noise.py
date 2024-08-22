@@ -252,7 +252,7 @@ def ensure_tensor_on_device(array, device='cuda',dtype=torch.float):
 def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_norm_penalty=1, 
                                    solution_penalty=10000,negative_penalty=1,ljnorm_penalty=0 ,j=0.5, lr=0.01, max_iter=1000, eta=1e-7, 
                                    tol=1e-7, device='cuda', cutoff=None, 
-                                   sample_frequencies=None, top_n=False,top_tresh=False, second_optimization=False,chunk_memory=1e9,auto_length=None):
+                                   sample_frequencies=None, top_n=False,top_tresh=False, second_optimization=False,chunk_memory=1e9,auto_length_debias=None,auto_length_return=None):
     """
     Reconstruct the super-resolution spectral density from the autocorrelation function.
 
@@ -279,14 +279,18 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
         top_tresh (float): Alternative to top_n chooses all coefficients above a treshold
         second_optimization (bool): If True, a second optimization step is performed using top n coefficients. Defaults to False.
         chunk_memory (float): The maximum amount of memory (in bytes) to use for each chunk. Defaults to 1GB.
-        auto_length (float): if not False: length of autocorrelation in fs for the returned autocorrelation and second optimizazion fitting, will be zero padded or cut
+        auto_length_debias (float): if not False: length of autocorrelation in fs for second optimizazion fitting, will be zero padded or cut
+        auto_length_return (float): if not False: length of the returned autocorrelation inn fs
 
     Returns:
         Tuple[np.ndarray, np.ndarray, np.ndarray]: Reconstructed spectral density, sampled frequencies, and super-resolved autocorrelation function.
     """
     auto = ensure_tensor_on_device(auto, device=device)
-    if auto_length:
-        auto = adjust_tensor_length(auto, auto_length//dt)
+    auto_very_orig = auto.clone()
+    if auto_length_return:
+        auto_very_orig = adjust_tensor_length(auto, auto_length_return//dt)
+    if auto_length_debias:
+        auto = adjust_tensor_length(auto, auto_length_debias//dt)
     
     N = len(auto)
     N_cut = int(cutoff / dt) if cutoff else N // 2
@@ -294,8 +298,9 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
 
     t_axis = dt * torch.arange(0, N_cut, device=device)
     t_axis_full = dt * torch.arange(0, N, device=device)
-    frequencies = torch.arange(0, 0.2, 0.0001, device=device) / hbar
-    dampings = torch.arange(1, 200, 1, device=device) * cm_to_eV / hbar
+    t_axis_very_orig = dt *torch.arange(0, len(auto_very_orig), device=device)
+    frequencies = torch.arange(0, 0.2, 0.00005, device=device) / hbar
+    dampings = torch.arange(1, 200, 0.5, device=device) * cm_to_eV / hbar
 
     damping_term = torch.exp(-dampings[None, :] * t_axis[:, None])
     frequency_term = torch.cos(frequencies[None, :] * t_axis[:, None])
@@ -377,7 +382,7 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
             J_new[i:max_idx] = (lambda_ij[None, :, :] * (term1 + term2)).sum(dim=[1, 2]) 
         J_new=J_new.detach().cpu().numpy()
         
-        auto_super = torch.zeros_like(auto_orig)
+        auto_super = torch.zeros_like(auto_very_orig)
         for i in range(0, len(t_axis_full), chunk_size):
             max_idx = min(i + chunk_size, t_axis_full.shape[0])
             damping_term_chunk = torch.exp(-dampings[None, :] * t_axis_full[i:max_idx, None])
@@ -388,6 +393,12 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
 
         if second_optimization:
             J_new_debias = torch.zeros_like(sample_frequencies)
+            #auto_super_debias = torch.zeros_like(auto_very_orig) # 
+            A_new = torch.zeros((len(t_axis_very_orig), top_n), device=device)
+            for k in range(top_n):
+                i = original_indices[0][k]
+                j = original_indices[1][k]
+                A_new[:, k] = torch.exp(-dampings[i] * t_axis_very_orig) * torch.cos(frequencies[j] * t_axis_very_orig) 
             auto_super_debias = A_new @ lambda_ij_new.flatten()
             for k in range(top_n):
                 i = original_indices[0][k]

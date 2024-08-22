@@ -58,80 +58,81 @@ auto_theoretical=auto_theoretical[0:N_cut]
 plt.plot(auto_theoretical)
 plt.show()
 plt.close()
-autos=[auto_theoretical]
-for total_time in (100_000,1_000_000):
-    Generated_Noise=noise_algorithm((reals,total_time//step), step,spectralfunc,save=True,save_name=f"noise_{total_time}.npy")
-    auto=get_auto(Generated_Noise)
-    autos.append(auto)
+for i in range(10):
+    autos=[auto_theoretical]
+    for total_time in (100_000,1_000_000):
+        Generated_Noise=noise_algorithm((reals,total_time//step), step,spectralfunc,save=True,save_name=f"noise_{total_time}.npy")
+        auto=get_auto(Generated_Noise)
+        autos.append(auto)
+    
+    
+    cutoffs=200*np.arange(10,100) #[20000]#[5000]#
 
 
-cutoffs=200*np.arange(10,100)#[5000]#
-
-errors_auto={}
-errors_J={}
-
-for auto in autos[1:]:
-    print(len(auto))
-    for cutoff in cutoffs:
-        print(cutoff)
-        for damping in ["exp","gauss","step"]:       
-            J_new, x_axis ,auto_damp = SD_Reconstruct_FFT(auto,step,T,hbar,k,damping_type=damping,cutoff=cutoff,rescale=False)
-            S=spectralfunc(x_axis/hbar)
-            SD=S/(2*np.pi*k*T)*x_axis/hbar
-            errors_auto[f"{damping}_{cutoff}_{len(auto)}"]=np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
-            errors_J[f"{damping}_{cutoff}_{len(auto)}"]=np.mean(np.abs(SD-J_new))/cm_to_eV
-            plt.plot(x_axis,J_new,label=f"{damping}")
-            print(f"{damping}: errors_auto {np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV} error_J {np.mean(np.abs(SD-J_new))/cm_to_eV}")
-        sample_frequencies=x_axis/hbar
-        torch.cuda.empty_cache()
-        J_new, x_axis ,auto_damp,J_new_debias,auto_debias=sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=0, l1_norm_penalty=0 ,
-                                           solution_penalty=1e4,negative_penalty=1, ljnorm_penalty=1,j=1, lr=10, max_iter=1000, eta=1e-7, 
-                                           tol=1e-7, device='cuda', cutoff=cutoff, 
-                                           sample_frequencies=x_axis/hbar, top_n=False,top_tresh=1e-6, second_optimization=True,chunk_memory=5e8, auto_length=400_000)
-        
-        errors_auto[f"super_{cutoff}_{len(auto)}"]=np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
-        errors_J[f"super_{cutoff}_{len(auto)}"]=np.mean(np.abs(SD-J_new))/cm_to_eV
-        errors_auto[f"super_debias_{cutoff}_{len(auto)}"]=np.mean(np.abs(auto_debias[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
-        errors_J[f"super_debias_{cutoff}_{len(auto)}"]=np.mean(np.abs(SD-J_new_debias))/cm_to_eV
-        print(f"super: errors_auto {np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV} error_J {np.mean(np.abs(SD-J_new))/cm_to_eV}")
-        print(f"super_debias: errors_auto {np.mean(np.abs(auto_debias[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV} error_J {np.mean(np.abs(SD-J_new_debias))/cm_to_eV}")
-        plt.plot(x_axis,J_new,label="super")
-        plt.plot(x_axis,SD,label="original")
+    errors_auto={}
+    errors_J={}
+    for auto in autos:
+        print(len(auto))
+        for cutoff in cutoffs:
+            print(cutoff)
+            for damping in ["exp","gauss","step"]:       
+                J_new, x_axis ,auto_damp = SD_Reconstruct_FFT(auto,step,T,hbar,k,damping_type=damping,cutoff=cutoff,rescale=False)
+                S=spectralfunc(x_axis/hbar)
+                SD=S/(2*np.pi*k*T)*x_axis/hbar
+                errors_auto[f"{damping}_{cutoff}_{len(auto)}"]=np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
+                errors_J[f"{damping}_{cutoff}_{len(auto)}"]=np.mean(np.abs(SD-J_new))/cm_to_eV
+                #plt.plot(x_axis,J_new,label=f"{damping}")
+                print(f"{damping}: errors_auto {np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV} error_J {np.mean(np.abs(SD-J_new))/cm_to_eV}")
+            sample_frequencies=x_axis/hbar
+            torch.cuda.empty_cache()
+            J_new, x_axis ,auto_damp,J_new_debias,auto_debias=sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=0, l1_norm_penalty=0 ,
+                                               solution_penalty=1e4,negative_penalty=0.1, ljnorm_penalty=1,j=1, lr=10, max_iter=1000, eta=1e-7, 
+                                               tol=1e-7, device='cuda', cutoff=cutoff, 
+                                               sample_frequencies=x_axis/hbar, top_n=False,top_tresh=5e-8, second_optimization=True,chunk_memory=5e8, auto_length_debias=cutoff,auto_length_return=20_000)
+            
+            errors_auto[f"super_{cutoff}_{len(auto)}"]=np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
+            errors_J[f"super_{cutoff}_{len(auto)}"]=np.mean(np.abs(SD-J_new))/cm_to_eV
+            errors_auto[f"super_debias_{cutoff}_{len(auto)}"]=np.mean(np.abs(auto_debias[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
+            errors_J[f"super_debias_{cutoff}_{len(auto)}"]=np.mean(np.abs(SD-J_new_debias))/cm_to_eV
+            print(f"super: errors_auto {np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV} error_J {np.mean(np.abs(SD-J_new))/cm_to_eV}")
+            print(f"super_debias: errors_auto {np.mean(np.abs(auto_debias[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV} error_J {np.mean(np.abs(SD-J_new_debias))/cm_to_eV}")
+            #plt.plot(x_axis,J_new,label="super")
+            #plt.plot(x_axis,SD,label="original")
+            #plt.legend()
+            #plt.show()
+            #plt.close()
+        for damping in ["exp","gauss","step","super","super_debias"]:
+            plot_error=[]
+            plot_error_auto=[]
+            for cutoff in cutoffs:
+                plot_error.append(errors_J[f"{damping}_{cutoff}_{len(auto)}"])
+                plot_error_auto.append(errors_auto[f"{damping}_{cutoff}_{len(auto)}"])
+            np.save(f"{damping}_{len(auto)}_{i}.npy",np.array(plot_error))
+            np.save(f"{damping}_{len(auto)}_{i}.npy",np.array(plot_error_auto))
+            plt.plot(cutoffs,plot_error,label=damping)
         plt.legend()
         plt.show()
         plt.close()
-    for damping in ["exp","gauss","step","super","super_debias"]:
-        plot_error=[]
-        plot_error_auto=[]
-        for cutoff in cutoffs:
-            plot_error.append(errors_J[f"{damping}_{cutoff}_{len(auto)}"])
-            plot_error_auto.append(errors_auto[f"{damping}_{cutoff}_{len(auto)}"])
-        np.save(f"{damping}_{len(auto)}.npy",np.array(plot_error))
-        np.save(f"{damping}_{len(auto)}.npy",np.array(plot_error_auto))
-        plt.plot(cutoffs,plot_error,label=damping)
-    plt.legend()
-    plt.show()
-    plt.close()
-    for damping in ["exp","gauss","step","super","super_debias"]:
-        plot_error_auto=[]
-        for cutoff in cutoffs:
-            plot_error_auto.append(errors_auto[f"{damping}_{cutoff}_{len(auto)}"])
-        plt.plot(cutoffs,plot_error_auto,label=damping)
-    plt.legend()
-    plt.show()
-    plt.close()
+        for damping in ["exp","gauss","step","super","super_debias"]:
+            plot_error_auto=[]
+            for cutoff in cutoffs:
+                plot_error_auto.append(errors_auto[f"{damping}_{cutoff}_{len(auto)}"])
+            plt.plot(cutoffs,plot_error_auto,label=damping)
+        plt.legend()
+        plt.show()
+        plt.close()
+        
     
-
-       
-for auto in autos:
-    for damping in ["exp","gauss","step","super","super_debias"]:
-        plot_error=[]
-        for cutoff in cutoffs:
-            plot_error.append(errors_J[f"{damping}_{cutoff}_{len(auto)}"])
-        plt.plot(cutoffs,plot_error,label=damping)
-    plt.legend()
-    plt.show()
-    plt.close()
+           
+    """for auto in autos:
+        for damping in ["exp","gauss","step","super","super_debias"]:
+            plot_error=[]
+            for cutoff in cutoffs:
+                plot_error.append(errors_J[f"{damping}_{cutoff}_{len(auto)}"])
+            plt.plot(cutoffs,plot_error,label=damping)
+        plt.legend()
+        plt.show()
+        plt.close()"""
         
         
 
