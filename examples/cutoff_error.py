@@ -87,7 +87,7 @@ for auto in autos[1:]:
         J_new, x_axis ,auto_damp,J_new_debias,auto_debias=sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=0, l1_norm_penalty=0 ,
                                            solution_penalty=1e4,negative_penalty=1, ljnorm_penalty=1,j=1, lr=10, max_iter=1000, eta=1e-7, 
                                            tol=1e-7, device='cuda', cutoff=cutoff, 
-                                           sample_frequencies=x_axis/hbar, top_n=False,top_tresh=0.001, second_optimization=True,chunk_memory=5e8, auto_length=400_000)
+                                           sample_frequencies=x_axis/hbar, top_n=False,top_tresh=1e-6, second_optimization=True,chunk_memory=5e8, auto_length=400_000)
         
         errors_auto[f"super_{cutoff}_{len(auto)}"]=np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
         errors_J[f"super_{cutoff}_{len(auto)}"]=np.mean(np.abs(SD-J_new))/cm_to_eV
