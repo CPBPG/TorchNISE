@@ -70,7 +70,7 @@ cutoffs=200*np.arange(10,100)#[5000]#
 errors_auto={}
 errors_J={}
 
-for auto in autos:
+for auto in autos[1:]:
     print(len(auto))
     for cutoff in cutoffs:
         print(cutoff)
@@ -84,10 +84,10 @@ for auto in autos:
             print(f"{damping}: errors_auto {np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV} error_J {np.mean(np.abs(SD-J_new))/cm_to_eV}")
         sample_frequencies=x_axis/hbar
         torch.cuda.empty_cache()
-        J_new, x_axis ,auto_damp,J_new_debias,auto_debias=sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=0, l1_norm_penalty=1 ,
-                                           solution_penalty=1e5,negative_penalty=1, ljnorm_penalty=0,j=0.5, lr=10, max_iter=1000, eta=1e-7, 
+        J_new, x_axis ,auto_damp,J_new_debias,auto_debias=sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=0, l1_norm_penalty=0 ,
+                                           solution_penalty=1e4,negative_penalty=1, ljnorm_penalty=1,j=1, lr=10, max_iter=1000, eta=1e-7, 
                                            tol=1e-7, device='cuda', cutoff=cutoff, 
-                                           sample_frequencies=x_axis/hbar, top_n=4000, second_optimization=True,chunk_memory=5e8, auto_length=400_000)
+                                           sample_frequencies=x_axis/hbar, top_n=False,top_tresh=0.001, second_optimization=True,chunk_memory=5e8, auto_length=400_000)
         
         errors_auto[f"super_{cutoff}_{len(auto)}"]=np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
         errors_J[f"super_{cutoff}_{len(auto)}"]=np.mean(np.abs(SD-J_new))/cm_to_eV

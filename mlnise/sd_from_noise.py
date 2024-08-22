@@ -174,8 +174,8 @@ def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,ne
         #    rho /= 1.001  # Decrease the penalty parameter
 
         # Print or log the objective value and constraint violation
-        #if iter%10==0:
-        #    print(f"Iteration {iter}: Objective value = with pen {obj_value.item():.6f} without pen {obj_value_no_penalty.item():.6f}, Constraint violation = {constraint_violation> eta}, {constraint_violation:.6f}")
+        if iter%10==0:
+            print(f"Iteration {iter}: Objective value = with pen {obj_value.item():.6f} without pen {obj_value_no_penalty.item():.6f}, Constraint violation = {constraint_violation> eta}, {constraint_violation:.6f}")
         if obj_value.item()<min_objective_value:
             min_objective_value=obj_value.item()
             no_improvement_iters=0
@@ -252,7 +252,7 @@ def ensure_tensor_on_device(array, device='cuda',dtype=torch.float):
 def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_norm_penalty=1, 
                                    solution_penalty=10000,negative_penalty=1,ljnorm_penalty=0 ,j=0.5, lr=0.01, max_iter=1000, eta=1e-7, 
                                    tol=1e-7, device='cuda', cutoff=None, 
-                                   sample_frequencies=None, top_n=False, second_optimization=False,chunk_memory=1e9,auto_length=None):
+                                   sample_frequencies=None, top_n=False,top_tresh=False, second_optimization=False,chunk_memory=1e9,auto_length=None):
     """
     Reconstruct the super-resolution spectral density from the autocorrelation function.
 
@@ -276,6 +276,7 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
         cutoff (float, optional): Cutoff for damping. Defaults to None.
         sample_frequencies (torch.Tensor, optional): Frequencies for sampling the spectral density. Defaults to None.
         top_n (int): If not False, only the top n coefficients are used. Defaults to False.
+        top_tresh (float): Alternative to top_n chooses all coefficients above a treshold
         second_optimization (bool): If True, a second optimization step is performed using top n coefficients. Defaults to False.
         chunk_memory (float): The maximum amount of memory (in bytes) to use for each chunk. Defaults to 1GB.
         auto_length (float): if not False: length of autocorrelation in fs for the returned autocorrelation and second optimizazion fitting, will be zero padded or cut
@@ -313,6 +314,26 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
             top_n=len(dampings) * len(frequencies)
         _, indices = torch.topk(lambda_ij.flatten(), top_n) #removed abs since we don't want negative peaks anyway
         
+        if second_optimization:         
+            original_indices = torch.unravel_index(indices, lambda_ij.shape)
+            A_new = torch.zeros((len(t_axis_full), top_n), device=device)
+            for k in range(top_n):
+                i = original_indices[0][k]
+                j = original_indices[1][k]
+                A_new[:, k] = torch.exp(-dampings[i] * t_axis_full) * torch.cos(frequencies[j] * t_axis_full) 
+            
+            lambda_ij_new = optimize_lambda_nnls(A_new,auto_orig,initial_guess=lambda_ij.flatten()[indices]) #torch.linalg.lstsq(A_new, auto_orig)[0] #
+            lambda_ij_debias = torch.zeros_like(lambda_ij, device=device)
+            lambda_ij_debias.flatten()[indices] = lambda_ij_new
+        else:
+            lambda_zero = torch.zeros_like(lambda_ij, device=device)
+            lambda_zero.flatten()[indices] = lambda_ij.flatten()[indices]
+            lambda_ij = lambda_zero
+    elif top_tresh:
+
+        indices = lambda_ij.flatten()>top_tresh #removed abs since we don't want negative peaks anyway
+        top_n= len(lambda_ij.flatten()[indices])
+        print(f'selected {top_n} values')
         if second_optimization:         
             original_indices = torch.unravel_index(indices, lambda_ij.shape)
             A_new = torch.zeros((len(t_axis_full), top_n), device=device)
