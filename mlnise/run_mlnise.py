@@ -13,7 +13,7 @@ from scipy.signal import correlate
 
 from mlnise.example_spectral_functions import spectral_Drude
 from mlnise.fft_noise_gen import noise_algorithm
-from mlnise.mlnise_model import MLNISE
+from mlnise.mlnise_model import MLNISE,averaging
 from mlnise.pytorch_utility import create_empty_mmap_tensor, tensor_to_mmap
 
 k = 8.6173303E-5 # in eV/K.
@@ -90,6 +90,7 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
     hbar = 0.658211951
 
     total_steps = int((total_time + dt) / dt)
+    save_steps  = int((total_time + dt*save_Interval) / (dt*save_Interval))
     n_state = H_0.shape[-1] #H_0.shape[1] if time_dependent_H else H_0.shape[0]
     window=1
     time_dependent_H= len(H_0.shape)>=3
@@ -158,16 +159,16 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
         num_chunks=1
     chunk_size = (reals + num_chunks - 1) // num_chunks  # This ensures each chunk is not greater than reals
 
-    if mode=="population":
-        all_oldave = []
-        all_newave = []
+    if mode=="population" and T_correction in ["ML","Jansen"]:
+        all_coherence = torch.zeros(num_chunks,save_steps,n_state,n_state)
+        all_lifetimes = torch.zeros(num_chunks,n_state)
     elif mode =="absorption":
         #all_meancoherence=[]
         all_absorb_time=[]
     saveU = mode =="absorption"#True #
 
     weights = []
-    all_output = []
+    all_output = torch.zeros(num_chunks,save_steps,n_state)
     for i in range(0, reals, chunk_size):
         chunk_reps = min(chunk_size, reals - i)
         weights.append(chunk_reps)
@@ -175,25 +176,28 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
 
         print(chunk_Hfull.shape)
         print("running calculation")
-        result,MSE, meancoherence,U, old_res, matrix_ave, lifetimes = model.simulate(0, 0, T, Er, tau, total_time, dt, chunk_reps, psi0, chunk_Hfull, device=device, T_correction=T_correction,saveU= saveU,memory_mapped=memory_mapped,save_Interval=save_Interval)
+        result,MSE, meancoherence,coherence_ave,U, old_res, matrix_ave, lifetimes = model.simulate(0, 0, T, Er, tau, total_time, dt, chunk_reps, psi0, chunk_Hfull, device=device, T_correction=T_correction,saveU= saveU,memory_mapped=memory_mapped,save_Interval=save_Interval,saveCoherence=True)
         if saveU:
             torch.save(U,"U.pt")
-        if mode=="population":
-            all_oldave.append(old_res)
-            all_newave.append(matrix_ave)
+        if mode=="population" and T_correction in ["ML","Jansen"]:
+            all_coherence[i//chunk_size,:,:,:]= coherence_ave
+            all_lifetimes[i//chunk_size,:] = lifetimes
         elif mode =="absorption":
             absorb_time=Absorption_time_domain(U,mu)
             #all_meancoherence.append(meancoherence)
             all_absorb_time.append(absorb_time)
-        all_output.append(result)
-    if mode=="population" and T_correction in ["ML","Jansen","Jansen-Redfield"]:
-        avg_oldave = np.average(all_oldave, axis=0, weights=weights)
-        avg_newave = np.average(all_newave, axis=0, weights=weights)
+        all_output[i//chunk_size,:,:]=old_res
+    if mode=="population" and T_correction in ["ML","Jansen"]:
+        lifetimes=torch.mean(all_lifetimes,dim=0)
+        avg_boltzmann,_ = averaging(all_output,"boltzmann",lifetimes=lifetimes,step=dt,coherence=all_coherence,weight=torch.tensor(weights,dtype=torch.float))#np.average(all_oldave, axis=0, weights=weights)
+        avg_blend,_ = averaging(all_output,"blend",lifetimes=lifetimes,step=dt,coherence=all_coherence,weight=torch.tensor(weights,dtype=torch.float))
+    
+    
     elif mode =="absorption":
         #avg_meancoherence = np.average(all_meancoherence, axis=0, weights=weights)
         avg_absorb_time = np.average(all_absorb_time, axis=0, weights=weights)
-
     avg_output = np.average(all_output, axis=0, weights=weights)
+    
 
 
     if mode=="absorption":
@@ -201,7 +205,7 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
         absorb_f, x_axis = absorb_time_to_freq(avg_absorb_time,pad,total_time,dt)
 
 
-    return avg_output, avg_oldave, avg_newave,avg_absorb_time,x_axis, absorb_f
+    return avg_output, avg_blend, avg_boltzmann,avg_absorb_time,x_axis, absorb_f
 
 # Original x and y data
 def PadJ(J,pad):

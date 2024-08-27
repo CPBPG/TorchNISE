@@ -100,7 +100,23 @@ def estimate_lifetime(U, delta_t):
     return lifetimes
 
 
-def averaging(population,averiging_type,lifetimes=None,coherence=None):
+def reshape_weights(weight,population,coherence):
+    weight=weight/torch.sum(weight)*len(weight) #normalize      
+    
+    if not coherence == None:
+        weight_shape_coherence=list(coherence.shape)
+        for i in range(1,len(weight_shape_coherence)): 
+            weight_shape_coherence[i]=1
+        weight_coherence=weight.reshape(weight_shape_coherence)
+    else:
+        weight_coherence=1
+    weight_shape=list(population.shape)
+    for i in range(1,len(weight_shape)): 
+        weight_shape[i]=1        
+    weight_reshaped=weight.reshape(weight_shape) #broadcasting weights to multiply with all elements
+    return weight_reshaped, weight_coherence
+
+def averaging(population,averiging_type,lifetimes=None,step=None,coherence=None,weight=None):
     averiging_types= ["original", "boltzmann", "blend"]
     
     if averiging_type.lower() not in averiging_types:
@@ -109,6 +125,36 @@ def averaging(population,averiging_type,lifetimes=None,coherence=None):
         assert not coherence == None
         if averiging_type.lower()=="blend":
             assert not lifetimes==None
+            assert not step==None
+    if weight==None:
+        weight=1
+        weight_coherence=1
+    else:
+        weight,weight_coherence = reshape_weights(weight,population,coherence)
+    
+    meanres_orig=population_return=torch.mean(population*weight,dim=0)
+    if coherence == None:
+        meanres_coherence = None
+    else:
+        meanres_coherence = torch.mean(coherence*weight_coherence,dim=0)
+    if averiging_type.lower()=="original":
+        population_return=meanres_orig
+        coherence_return=meanres_coherence
+    else:
+        logres_Matrix=torch.mean(matrix_logh(coherence)*weight_coherence,dim=0)      
+        meanExp_Matrix=torch.linalg.matrix_exp(logres_Matrix)
+        #renormalize
+        meanres_Matrix=meanExp_Matrix/batch_trace(meanExp_Matrix).unsqueeze(1).unsqueeze(1)  
+        meanres_Matrix[0]=meanres_coherence[0]
+        coherence_return=meanres_Matrix
+        if averiging_type.lower()=="boltzmann":          
+            population_return=torch.diagonal(meanres_Matrix, dim1=-2, dim2=-1)
+        else:
+            population_return=blend_and_normalize_populations(meanres_orig,torch.diagonal(meanres_Matrix, dim1=-2, dim2=-1),lifetimes,step)               
+
+    
+    return population_return, coherence_return
+    
     
     
 
@@ -189,7 +235,11 @@ class MLNISE(nn.Module):
 
         Cold=C
         Eold=E
-        PSLOC[:,0,:]=(psi0[:,:,0]**2).cpu(); #Save the population of the first timestep
+        pop0=(psi0[:,:,0]**2).cpu()
+        PSLOC[:,0,:]=pop0 #Save the population of the first timestep
+        if saveCoherence:
+            for i in range(N):
+                CohLoc[:,0,i,i]=pop0[:,i]
         phiB=Cold.transpose(1,2).to(dtype=torch.complex64).bmm(psi0.to(dtype=torch.complex64)) #Use the transition Matrix to transfer to the eigenbasis. Bmm is a batched matrix multiplication, so it does the matrix multiplication for all batches at once
 
         #phiB#=MakeComplex(phiB) #We need complex numbers. We used our own implementation of complex numbers since Pytorch did not suport complex numbers at the time development of this project started
@@ -364,7 +414,7 @@ class MLNISE(nn.Module):
             N=np.size(Hfull,3) # get the number of sites from the size of the hamiltonian
 
 
-            totalres=0
+
 
 
             #Basically Create a batch of input parameters that are all the same
@@ -382,72 +432,44 @@ class MLNISE(nn.Module):
 
                 ####run NISE without T correction
             if T_correction in ["Jansen","ML"]:
-                res, coherence ,U= self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,"None",True,explicitTemp,True,memory_mapped=memory_mapped,save_Interval=save_Interval)
+                population, coherence ,U= self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,"None",True,explicitTemp,True,memory_mapped=memory_mapped,save_Interval=save_Interval)
                 lifetimes=estimate_lifetime(U, step[0]*save_Interval)
                 lifetimes=lifetimes*5
                 print(lifetimes)
 
 
 
-            res, coherence ,U = self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,T_correction,True,explicitTemp,saveU,memory_mapped=memory_mapped,save_Interval=save_Interval)
+            population, coherence ,U = self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,T_correction,True,explicitTemp,saveU,memory_mapped=memory_mapped,save_Interval=save_Interval)
             # Now the return will be a batch of population dynamics and we only need to take the average of those
 
-
-
-            totalres+=res
-
-
-            meanres_orig=torch.mean(res,dim=0)
-            meanres_arr=torch.zeros_like(res)
+            meanres_orig=torch.mean(population,dim=0)
+            
             if T_correction in ["Jansen","ML"]:
-                logres_Matrix=torch.mean(matrix_logh(coherence),dim=0)
-                meanExp_Matrix=torch.linalg.matrix_exp(logres_Matrix)
+                #logres_Matrix=torch.mean(matrix_logh(coherence),dim=0)
+                #meanExp_Matrix=torch.linalg.matrix_exp(logres_Matrix)
                 #renormalize
-                meanres_Matrix=meanExp_Matrix/batch_trace(meanExp_Matrix) 
-                meanres_orig_Matrix=torch.mean(coherence,dim=0)#(coherence.to_torch_complex(),dim=0) #torch.mean(coherence.to_torch_complex(),dim=0) #
-
-
-            for i in range(0,res.shape[0]):
-                meanres_arr[i,:,:]=meanres_orig
-
-            MSE=F.mse_loss(meanres_arr,res) #the internal MSE of a single realization wiht respect to the average
-
-            if T_correction in ["Jansen","ML"]:
-                lifetimes=lifetimes*5
-                print(lifetimes)
-                mytime=torch.arange(0,total_time[0]+step[0]*save_Interval,step[0]*save_Interval)
-                expratio=torch.exp(-mytime/lifetimes[0]).unsqueeze(1).unsqueeze(1)
-                
-                
-                newresH=meanres_Matrix.clone()
-
-                log_meanres_orig_Matrix=matrix_logh(meanres_orig_Matrix)
-                log_meanres_Matrix=matrix_logh(meanres_Matrix)
-                
-                newresH[1:,:,:]=log_meanres_orig_Matrix[1:,:,:]*expratio[1:,:,:]+log_meanres_Matrix[1:,:,:]*(1-expratio[1:,:,:])
-
-                newresH_exp=torch.linalg.matrix_exp(newresH)
-
-                newres_Matrix=torch.clone(meanres_orig)
-                for i in range(0,N):
-                    newres_Matrix[1:,i]=newresH_exp[1:,i,i]/batch_trace(newresH_exp[1:,:,:])
-
-
-                population_blend=blend_and_normalize_populations(meanres_orig,torch.diagonal(meanres_Matrix, dim1=1, dim2=2),lifetimes,step[0])
-
-
-
-                result=population_blend
+                #meanres_Matrix=meanExp_Matrix/batch_trace(meanExp_Matrix) 
+                #population_blend=blend_and_normalize_populations(meanres_orig,torch.diagonal(meanres_Matrix, dim1=-2, dim2=-1),lifetimes,step[0])               
+                #result=population_blend
+                #old_res=meanres_orig
+                #matrix_ave=torch.diagonal(meanres_Matrix, dim1=1, dim2=2)
+                matrix_ave,coherence_ave=averaging(population,"boltzmann",lifetimes=lifetimes,step=step[0],coherence=coherence)
+                result,_=averaging(population,"blend",lifetimes=lifetimes,step=step[0],coherence=coherence)
                 old_res=meanres_orig
-                matrix_ave=newres_Matrix
-
-
             else:
                 result=meanres_orig
-                old_res=None
+                old_res=meanres_orig
                 matrix_ave=None
+                coherence_ave=None
+            meanres_arr=torch.zeros_like(population)    
+            for i in range(0,population.shape[0]):
+                meanres_arr[i,:,:]=meanres_orig
+
+            MSE=F.mse_loss(meanres_arr,population) #the internal MSE of a single realization wiht respect to the average
+
+            
             if not saveCoherence:
                 meancoherence=None
             else:
                 meancoherence=torch.mean(coherence.real,dim=0).abs()
-            return result,MSE, meancoherence,U, old_res, matrix_ave,lifetimes
+            return result,MSE, meancoherence,coherence_ave,U, old_res, matrix_ave,lifetimes

@@ -27,7 +27,7 @@ tau=100
 Er=100
 H_0=torch.tensor(H,dtype=torch.float)
 model=mlnise.mlnise_model.MLNISE()
-reals=100
+reals=1000
 dt=1
 initiallyExcitedState=0
 total_time=250
@@ -35,17 +35,26 @@ spectral_funcs=[spectralfunc]
 
 #trajectory_time=None, T_correction='None', maxreps=1000000, use_filter=False, filter_order=10, filter_cutoff=0.1, mode="population",mu=None,device="cpu",memory_mapped=False,save_Interval=10
 device="cpu"
-T_correction='None'
+T_correction='Jansen'
 save_Interval=10
 memory_mapped=True
-maxreps=1000
-avg_output, avg_oldave, avg_newave,avg_absorb_time,x_axis, absorb_f = mlnise.run_mlnise.RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, total_time, spectral_funcs,T_correction=T_correction,save_Interval=save_Interval,memory_mapped=memory_mapped,device=device,maxreps=maxreps)
+maxreps=100
+avg_output, avg_blend, avg_boltzmann,avg_absorb_time,x_axis, absorb_f = mlnise.run_mlnise.RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, total_time, spectral_funcs,T_correction=T_correction,save_Interval=save_Interval,memory_mapped=memory_mapped,device=device,maxreps=maxreps)
 
-np.save("avg_old.npy",avg_oldave)
+np.save("avg_old.npy",avg_blend)
 np.save("avg_output.npy",avg_output)
-np.save("avg_newave.npy",avg_newave)
+np.save("avg_newave.npy",avg_boltzmann)
 
 
 for i in range(0,n_state):
+    plt.plot(avg_blend[:,i])
+plt.show()
+plt.close()
+for i in range(0,n_state):
+    plt.plot(avg_boltzmann[:,i])
+plt.show()
+plt.close()
+for i in range(0,n_state):
     plt.plot(avg_output[:,i])
 plt.show()
+plt.close()
