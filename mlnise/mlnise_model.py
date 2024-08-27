@@ -392,18 +392,15 @@ class MLNISE(nn.Module):
             res, coherence ,U = self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,T_correction,True,explicitTemp,saveU,memory_mapped=memory_mapped,save_Interval=save_Interval)
             # Now the return will be a batch of population dynamics and we only need to take the average of those
 
+
+
             totalres+=res
-            if T_correction in ["Jansen","ML"]:
-                logres=torch.mean(torch.log(res),dim=0)
-                meanres=torch.zeros(logres.shape)
-                for i in range(0,N):
-                    meanres[:,i]=torch.exp(logres[:,i])/torch.sum(torch.exp(logres),dim=-1)
+
 
             meanres_orig=torch.mean(res,dim=0)
-            meanres_arr=torch.zeros(res.shape)
+            meanres_arr=torch.zeros_like(res)
             if T_correction in ["Jansen","ML"]:
                 logres_Matrix=torch.mean(matrix_logh(coherence),dim=0)
-                #meanres_Matrix=torch.zeros_like(logres_Matrix)
                 meanExp_Matrix=torch.linalg.matrix_exp(logres_Matrix)
                 #renormalize
                 meanres_Matrix=meanExp_Matrix/batch_trace(meanExp_Matrix) 
@@ -419,25 +416,19 @@ class MLNISE(nn.Module):
                 lifetimes=lifetimes*5
                 print(lifetimes)
                 mytime=torch.arange(0,total_time[0]+step[0]*save_Interval,step[0]*save_Interval)
-                expratio=torch.exp(-mytime/lifetimes[0])
-                newres=meanres.clone()
-                newres_Matrix=meanres.clone()
-                newresE=meanres.clone()
+                expratio=torch.exp(-mytime/lifetimes[0]).unsqueeze(1).unsqueeze(1)
+                
+                
                 newresH=meanres_Matrix.clone()
 
                 log_meanres_orig_Matrix=matrix_logh(meanres_orig_Matrix)
                 log_meanres_Matrix=matrix_logh(meanres_Matrix)
-                for i in range(0,N):
-                    for j in range(0,N):
-                        newresH[1:,i,j]=log_meanres_orig_Matrix[1:,i,j]*expratio[1:]+log_meanres_Matrix[1:,i,j]*(1-expratio[1:])
-                for i in range(0,N):
-                    newresE[1:,i]=torch.log(meanres_orig[1:,i])*expratio[1:]+torch.log(meanres[1:,i])*(1-expratio[1:])
-                for i in range(0,N):
-                    newres[1:,i]=torch.exp(newresE[1:,i])/torch.sum(torch.exp(newresE[1,:]),dim=-1)
-
+                
+                newresH[1:,:,:]=log_meanres_orig_Matrix[1:,:,:]*expratio[1:,:,:]+log_meanres_Matrix[1:,:,:]*(1-expratio[1:,:,:])
 
                 newresH_exp=torch.linalg.matrix_exp(newresH)
 
+                newres_Matrix=torch.clone(meanres_orig)
                 for i in range(0,N):
                     newres_Matrix[1:,i]=newresH_exp[1:,i,i]/batch_trace(newresH_exp[1:,:,:])
 
