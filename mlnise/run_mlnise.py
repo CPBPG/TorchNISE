@@ -175,7 +175,7 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
 
         print(chunk_Hfull.shape)
         print("running calculation")
-        result,MSE, meancoherence,U, old_res, matrix_ave = model.simulate(0, 0, T, Er, tau, total_time, dt, chunk_reps, psi0, chunk_Hfull, device=device, T_correction=T_correction,saveU= saveU,memory_mapped=memory_mapped,save_Interval=save_Interval)
+        result,MSE, meancoherence,U, old_res, matrix_ave, lifetimes = model.simulate(0, 0, T, Er, tau, total_time, dt, chunk_reps, psi0, chunk_Hfull, device=device, T_correction=T_correction,saveU= saveU,memory_mapped=memory_mapped,save_Interval=save_Interval)
         if saveU:
             torch.save(U,"U.pt")
         if mode=="population":

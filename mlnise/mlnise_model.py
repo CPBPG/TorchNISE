@@ -100,6 +100,18 @@ def estimate_lifetime(U, delta_t):
     return lifetimes
 
 
+def averaging(population,averiging_type,lifetimes=None,coherence=None):
+    averiging_types= ["original", "boltzmann", "blend"]
+    
+    if averiging_type.lower() not in averiging_types:
+        raise NotImplementedError(f"{averiging_type} not implemented only {averiging_types} are available")
+    if averiging_type.lower() in ["blend","boltzmann"]:
+        assert not coherence == None
+        if averiging_type.lower()=="blend":
+            assert not lifetimes==None
+    
+    
+
 #The way Pytorch is build we need a Class for your ML model. This class does not only require the Neural Network but the
 #entire machine learning model. In our case that is the Full NISE method.
 class MLNISE(nn.Module):
@@ -366,11 +378,13 @@ class MLNISE(nn.Module):
             psi0=torch.zeros(reps,N,1)
             psi0[:,initially_excited_site,:]=1
             inputreps=torch.ones(reps)
+            lifetimes=None
 
                 ####run NISE without T correction
             if T_correction in ["Jansen","ML"]:
                 res, coherence ,U= self.forward( T.to(device), Er.to(device), cortim.to(device), total_time.to(device), step.to(device), inputreps.to(device), psi0.to(device), Hfull,device,"None",True,explicitTemp,True,memory_mapped=memory_mapped,save_Interval=save_Interval)
                 lifetimes=estimate_lifetime(U, step[0]*save_Interval)
+                lifetimes=lifetimes*5
                 print(lifetimes)
 
 
@@ -389,11 +403,10 @@ class MLNISE(nn.Module):
             meanres_arr=torch.zeros(res.shape)
             if T_correction in ["Jansen","ML"]:
                 logres_Matrix=torch.mean(matrix_logh(coherence),dim=0)
-                meanres_Matrix=torch.zeros(logres_Matrix.shape)
+                #meanres_Matrix=torch.zeros_like(logres_Matrix)
                 meanExp_Matrix=torch.linalg.matrix_exp(logres_Matrix)
-                for i in range(0,N):
-                    for j in range(0,N):
-                       meanres_Matrix[:,i,j]=meanExp_Matrix[:,i,j]/batch_trace(meanExp_Matrix)
+                #renormalize
+                meanres_Matrix=meanExp_Matrix/batch_trace(meanExp_Matrix) 
                 meanres_orig_Matrix=torch.mean(coherence,dim=0)#(coherence.to_torch_complex(),dim=0) #torch.mean(coherence.to_torch_complex(),dim=0) #
 
 
@@ -446,4 +459,4 @@ class MLNISE(nn.Module):
                 meancoherence=None
             else:
                 meancoherence=torch.mean(coherence.real,dim=0).abs()
-            return result,MSE, meancoherence,U, old_res, matrix_ave
+            return result,MSE, meancoherence,U, old_res, matrix_ave,lifetimes
