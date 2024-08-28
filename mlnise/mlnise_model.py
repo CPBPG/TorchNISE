@@ -163,7 +163,7 @@ def estimate_lifetime(U, delta_t,method="oscillatory_fit"):
             
             #for x0 in [[tau_0,tau_0,0.5],[tau_0,tau_1,0.5],[tau_1,tau_0,0.5],[tau_1,tau_1,0.5]]:
             #    print(x0)
-            res = dual_annealing(objective_oscil,bounds=list(zip(lw,up)),args=(i,delta_t,n,time_array,U,),minimizer_kwargs={"method":"BFGS"},x0=x0)
+            res = dual_annealing(objective_oscil,bounds=list(zip(lw,up)),args=(i,delta_t,n,time_array,U,),minimizer_kwargs={"method":"BFGS"},x0=x0,maxiter=500)
                 #if res.fun<minres:
             tau_opt,osc_scale_opt,osc_strength_opt = res.x
                 #print(res.x)
