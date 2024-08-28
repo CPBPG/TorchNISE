@@ -78,7 +78,7 @@ def estimate_lifetime(U, delta_t):
         reverse_cummax = torch.flip(reverse_cummax, [0])
 
         # Select values where the element is equal to its reverse cumulative maximum
-        selected_values = population == reverse_cummax
+        selected_values = population == population
         times=time_array[selected_values]
         weights=times[1:]-times[:-1]
 

@@ -189,6 +189,7 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
         all_output[i//chunk_size,:,:]=old_res
     if mode=="population" and T_correction in ["ML","Jansen"]:
         lifetimes=torch.mean(all_lifetimes,dim=0)
+        print(f"lifetimes are {lifetimes}")
         avg_boltzmann,_ = averaging(all_output,"boltzmann",lifetimes=lifetimes,step=dt,coherence=all_coherence,weight=torch.tensor(weights,dtype=torch.float))#np.average(all_oldave, axis=0, weights=weights)
         avg_blend,_ = averaging(all_output,"blend",lifetimes=lifetimes,step=dt,coherence=all_coherence,weight=torch.tensor(weights,dtype=torch.float))
     
