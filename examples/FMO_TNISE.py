@@ -27,7 +27,7 @@ tau=100
 Er=100
 H_0=torch.tensor(H,dtype=torch.float)
 model=mlnise.mlnise_model.MLNISE()
-reals=1000
+reals=10000
 dt=1
 initiallyExcitedState=0
 total_time=60000

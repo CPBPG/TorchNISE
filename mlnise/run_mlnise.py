@@ -192,9 +192,12 @@ def RunNiseOptions(model, reals, H_0, tau, Er, T, dt, initiallyExcitedState, tot
         print(f"lifetimes are {lifetimes}")
         avg_boltzmann,_ = averaging(all_output,"boltzmann",lifetimes=lifetimes,step=dt,coherence=all_coherence,weight=torch.tensor(weights,dtype=torch.float))#np.average(all_oldave, axis=0, weights=weights)
         avg_blend,_ = averaging(all_output,"blend",lifetimes=lifetimes,step=dt,coherence=all_coherence,weight=torch.tensor(weights,dtype=torch.float))
+    else:
+        avg_blend=None
+        avg_boltzmann=None
+        lifetimes=None
     
-    
-    elif mode =="absorption":
+    if mode =="absorption":
         #avg_meancoherence = np.average(all_meancoherence, axis=0, weights=weights)
         avg_absorb_time = np.average(all_absorb_time, axis=0, weights=weights)
     avg_output = np.average(all_output, axis=0, weights=weights)

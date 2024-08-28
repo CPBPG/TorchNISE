@@ -6,6 +6,9 @@ import torch.nn.functional as F
 import tqdm
 from scipy.optimize import minimize
 from scipy.optimize import dual_annealing
+from scipy.optimize import basinhopping
+from scipy.optimize import differential_evolution
+import matplotlib.pyplot as plt
 
 from mlnise.pytorch_utility import (
     batch_trace,
@@ -60,6 +63,58 @@ def blend_and_normalize_populations(pop1, pop2, lifetimes, delta_t):
     normalized_population = blended_population / total_population
 
     return normalized_population
+def objective_oscil(tau_oscscale_oscstrength, i,delta_t,n,time_array,U):
+     tau,osc_scale,osc_strength=tau_oscscale_oscstrength
+     osc_scale=osc_scale
+     osc_strength=osc_strength
+     amplitude=osc_strength
+     vert_shift= (1-osc_strength)
+     fit = (1 - 1/n) * torch.exp(-time_array/tau)*(amplitude*torch.cos(2*np.pi*time_array/osc_scale)+vert_shift) + 1/n
+     population = torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real  
+     mse = torch.mean(torch.abs((population[1:] - fit[1:])))
+     return mse.item()
+def objective_oscil_freq(tau,osc_scale, i,delta_t,n,time_array,U):
+     
+     osc_strength=1
+     amplitude=osc_strength
+     osc_scale=osc_scale.unsqueeze(1)
+     osc_scale=osc_scale/(2*np.pi)
+     time_array=time_array.clone().unsqueeze(0)
+     vert_shift= (1-osc_strength)
+     fit = (1 - 1/n) * torch.exp(-time_array/tau)*(amplitude*torch.cos(time_array/osc_scale)+vert_shift) + 1/n
+     population = torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real  
+     population =population.unsqueeze(1)
+     mse = torch.mean(torch.abs((population[:,1:] - fit[:,1:])),dim=1)
+     return mse
+    
+ 
+def objective_mae(tau, i,delta_t,n,time_array,U):
+    fit = (1 - 1/n) * torch.exp(-time_array/tau) + 1/n
+    population = torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real
+    mse = torch.mean(torch.abs((population[1:] - fit[1:])))
+    return mse.item() 
+def objective(tau, i,delta_t,n,time_array,U):
+    fit = (1 - 1/n) * torch.exp(-time_array/tau) + 1/n
+    population = torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real
+    mse = torch.mean(((population[1:] - fit[1:]))**2)
+    return mse.item() 
+def objective_reverse_cummax(tau, i,delta_t,n,time_array,U):
+    fit = (1 - 1/n) * torch.exp(-time_array/tau) + 1/n
+    population = torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real
+    
+    reverse_cummax, _ = torch.flip(population, [0]).cummax(dim=0)
+
+    # Reverse the cumulative maximum back to the original order
+    reverse_cummax = torch.flip(reverse_cummax, [0])
+
+    # Select values where the element is equal to its reverse cumulative maximum
+    selected_values = population == reverse_cummax
+    
+    times=time_array[selected_values]
+    weights=times[1:]-times[:-1]
+
+    mse = torch.mean(((population[selected_values][1:] - fit[selected_values][1:])*weights) ** 2)
+    return mse.item()
 
 def estimate_lifetime(U, delta_t,method="oscillatory_fit"):
     # Number of states and time steps
@@ -69,70 +124,66 @@ def estimate_lifetime(U, delta_t,method="oscillatory_fit"):
 
     # Lifetime estimates
     lifetimes = torch.zeros(n, device=U.device, dtype=torch.float)
-    if method in ["reverse_cummax"]:
-    # Objective function: MSE between population and exponential model
-        def objective(tau, i):
-            fit = (1 - 1/n) * torch.exp(-time_array/tau) + 1/n
-            population = torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real
-            
-            reverse_cummax, _ = torch.flip(population, [0]).cummax(dim=0)
-    
-            # Reverse the cumulative maximum back to the original order
-            reverse_cummax = torch.flip(reverse_cummax, [0])
-    
-            # Select values where the element is equal to its reverse cumulative maximum
-            selected_values = population == reverse_cummax
-            
-            times=time_array[selected_values]
-            weights=times[1:]-times[:-1]
-    
-            mse = torch.mean(((population[selected_values][1:] - fit[selected_values][1:])*weights) ** 2)
-            return mse.item()
-    elif method in ["simple_fit"]:
-        def objective(tau, i):
-            fit = (1 - 1/n) * torch.exp(-time_array/tau) + 1/n
-            population = torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real
-            mse = torch.mean(((population[1:] - fit[1:])) ** 2)
-            return mse.item()
-    elif method in ["oscillatory_fit"]:
-        def objective(tau_oscscale_oscstrength, i):
-            tau,osc_scale,osc_strength=tau_oscscale_oscstrength
-            amplitude=osc_strength/2
-            vert_shift= (2-osc_strength)/2
-            fit = (1 - 1/n) * torch.exp(-time_array/tau)*(amplitude*torch.cos(time_array/osc_scale)+vert_shift) + 1/n
-            population = torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real  
-            mse = torch.mean(((population[1:] - fit[1:])) ** 2)
-            return mse.item()
+
     # Estimate lifetime for each state
     for i in range(n): 
-        func = lambda tau: objective(tau, i)
+        func = lambda tau: objective(tau, i,delta_t,n,time_array,U)
         tolerance = 0.1 * delta_t
-        if method in ["simple_fit", "reverse_cummax"]:
-            tau_opt = golden_section_search(func, delta_t, 100 * timesteps * delta_t, tolerance)
+        if method in ["simple_fit", "reverse_cummax","simple_fit_mae"]:
+            if method == "simple_fit":
+                func = lambda tau: objective(tau, i,delta_t,n,time_array,U)
+            elif method == "reverse_cummax":
+                func = lambda tau: objective_reverse_cummax(tau, i,delta_t,n,time_array,U)
+            elif method == "simple_fit_mae":
+                func = lambda tau: objective_mae(tau, i,delta_t,n,time_array,U)
+            #tau_opt = golden_section_search(func, delta_t, 100 * timesteps * delta_t, tolerance)
+            lw=[delta_t]
+            up=[100 * timesteps * delta_t]
+            tau_opt= dual_annealing(func,bounds=list(zip(lw,up)),minimizer_kwargs={"method":"BFGS"}).x
             print(f"lifetime state {i+1} {tau_opt} fs")
-            #plt.plot(torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real,label="NISE")
-            #plt.plot((1 - 1/n) * torch.exp(-time_array/tau_opt) + 1/n,label="fit")
-            #plt.legend()
-            #plt.show()
-            #plt.close()
+            plt.plot(torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real,label="NISE")
+            plt.plot((1 - 1/n) * torch.exp(-time_array/tau_opt) + 1/n,label="fit")
+            plt.legend()
+            plt.show()
+            plt.close()
         elif method in ["oscillatory_fit"]:
-            #tau_opt = minimize(func,torch.tensor([100*delta_t,100*delta_t,0]),tol=tolerance).x
+            func = lambda tau: objective_reverse_cummax(tau, i,delta_t,n,time_array,U)
+            tau_0 = golden_section_search(func, delta_t, 100 * timesteps * delta_t, tolerance)       
+            #func = lambda tau: objective(tau, i,delta_t,n,time_array,U)
+            #tau_1 = golden_section_search(func, delta_t, 100 * timesteps * delta_t, tolerance)       
+            
+            #osc_test= torch.linspace(delta_t, 0.5* timesteps * delta_t,1000)
+            #objective_oscil_freq(tau_oscscale_oscstrength, i,delta_t,n,time_array,U)
+            
+            x0=[tau_0,tau_0,0.5]
+            #tau_opt,osc_scale_opt,osc_strength_opt = minimize(func,torch.tensor([100*delta_t,100*delta_t,0]),tol=tolerance).x
             lw=[delta_t,delta_t,0]
             up=[100 * timesteps * delta_t,0.5* timesteps * delta_t,1]
-            tau_opt = dual_annealing(func,bounds=list(zip(lw,up))).x
-            print(f"lifetime state {i+1} {tau_opt[0]} fs, with oscillation strength {tau_opt[2]} and oscillation length  {tau_opt[1]} fs")
-            #plt.plot(torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real,label="NISE")
-            #amplitude=tau_opt[2]/2
-            #vert_shift= (2-tau_opt[2])/2
-            #plt.plot((1 - 1/n) * torch.exp(-time_array/tau)*(amplitude*torch.cos(time_array/osc_scale)+vert_shift) + 1/n,label="fit")
-            #plt.legend()
-            #plt.show()  
-            #plt.close()
-            tau_opt=tau_opt[0]
+            #minres=1e99
+            
+            #for x0 in [[tau_0,tau_0,0.5],[tau_0,tau_1,0.5],[tau_1,tau_0,0.5],[tau_1,tau_1,0.5]]:
+            #    print(x0)
+            res = dual_annealing(objective_oscil,bounds=list(zip(lw,up)),args=(i,delta_t,n,time_array,U,),minimizer_kwargs={"method":"BFGS"},x0=x0)
+                #if res.fun<minres:
+            tau_opt,osc_scale_opt,osc_strength_opt = res.x
+                #print(res.x)
+            
+            #tau_opt,osc_scale_opt,osc_strength_opt = basinhopping(func,x0,minimizer_kwargs={"method":"BFGS"},stepsize=50*delta_t).x
+            #tau_opt,osc_scale_opt,osc_strength_opt = differential_evolution(objective,bounds=list(zip(lw,up)),args=(i,delta_t,n,time_array,U,),tol=tolerance,popsize=100).x
+            print(f"lifetime state {i+1} {tau_opt} fs, with oscillation strength {osc_strength_opt} and oscillation length  {osc_scale_opt} fs")
+            
+            plt.plot(torch.mean(torch.abs(U[:,:,i,i])**2, dim=0).real,label="NISE")
+            amplitude=osc_strength_opt
+            vert_shift= 1-osc_strength_opt
+            plt.plot((1 - 1/n) * torch.exp(-time_array/tau_opt)*(amplitude*torch.cos(2*np.pi*time_array/osc_scale_opt)+vert_shift) + 1/n,label="fit")
+            plt.legend()
+            plt.show()  
+            plt.close()
+
               
         
-        lifetimes[i] = tau_opt
-        print(f"lifetime state {i+1} {tau_opt} fs")
+        lifetimes[i] = torch.tensor(tau_opt)
+        #print(f"lifetime state {i+1} {tau_opt} fs")
     return lifetimes
 
 
