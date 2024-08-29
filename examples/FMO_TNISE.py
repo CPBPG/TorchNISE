@@ -4,6 +4,8 @@ import functools
 from mlnise.example_spectral_functions import spectral_Drude_Lorentz_Heom, spectral_Drude
 import torch
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
+
 
 k = 8.6173303E-5 # in eV/K. 
 T = 300 #Temperature in K
@@ -59,10 +61,21 @@ boltzman_incorrect=torch.mean(H_eq/torch.sum(H_eq,dim=2,keepdim=True),dim=[0,1])
 
 xaxis=torch.linspace(0, total_time/1000,avg_blend.shape[0] )
 
-for i in range(0,n_state):
+for i in range(0,2):
     plt.plot(xaxis,avg_blend[:,i],color=colors[i],label=f"site {i+1}")
     plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzman_correct[i],boltzman_correct[i]],linestyle="dashed",color=colors[i])
     plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzman_incorrect[i],boltzman_incorrect[i]],linestyle="dotted",color=colors[i])
+boltzmann_correct_remaining=boltzman_correct[2].item()
+boltzman_incorrect_remaining=boltzman_incorrect[2].item()
+pop_remaining=avg_blend[:,2].clone()
+for i in range(3,8):
+    boltzmann_correct_remaining+=boltzman_correct[i]
+    boltzman_incorrect_remaining+=boltzman_incorrect[i]
+    pop_remaining+=avg_blend[:,i]
+plt.plot(xaxis,pop_remaining,label="sites 3-8",color=colors[2])
+plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzmann_correct_remaining,boltzmann_correct_remaining],linestyle="dashed",color=colors[2])
+plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzman_incorrect_remaining,boltzman_incorrect_remaining],linestyle="dotted",color=colors[2])
+
 plt.xlabel("time [ps]")
 plt.ylabel("population")
 plt.xlim([torch.min(xaxis),torch.max(xaxis)])
@@ -70,10 +83,18 @@ plt.ylim([0,1])
 plt.legend()
 plt.show()
 plt.close()
-for i in range(0,n_state):
+for i in range(0,2):
     plt.plot(xaxis,avg_boltzmann[:,i],color=colors[i],label=f"site {i+1}")
     plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzman_correct[i],boltzman_correct[i]],color=colors[i],linestyle="dashed")
     plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzman_incorrect[i],boltzman_incorrect[i]],linestyle="dotted",color=colors[i])
+pop_remaining=avg_boltzmann[:,2].clone()
+for i in range(3,8):
+    pop_remaining+=avg_boltzmann[:,i]
+plt.plot(xaxis,pop_remaining,label="sites 3-8",color=colors[2])
+plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzmann_correct_remaining,boltzmann_correct_remaining],linestyle="dashed",color=colors[2])
+plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzman_incorrect_remaining,boltzman_incorrect_remaining],linestyle="dotted",color=colors[2])
+
+
 plt.xlabel("time [ps]")
 plt.ylabel("population")
 plt.xlim([torch.min(xaxis),torch.max(xaxis)])
@@ -81,10 +102,17 @@ plt.ylim([0,1])
 plt.legend()
 plt.show()
 plt.close()
-for i in range(0,n_state):
+for i in range(0,2):
     plt.plot(xaxis,avg_output[:,i],color=colors[i],label=f"site {i+1}")
     plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzman_correct[i],boltzman_correct[i]],color=colors[i],linestyle="dashed")
     plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzman_incorrect[i],boltzman_incorrect[i]],linestyle="dotted",color=colors[i])
+pop_remaining=avg_output[:,2].clone()
+for i in range(3,8):
+    pop_remaining+=avg_output[:,i]
+plt.plot(xaxis,pop_remaining,label="sites 3-8",color=colors[2])
+plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzmann_correct_remaining,boltzmann_correct_remaining],linestyle="dashed",color=colors[2])
+plt.plot([torch.min(xaxis),torch.max(xaxis)],[boltzman_incorrect_remaining,boltzman_incorrect_remaining],linestyle="dotted",color=colors[2])
+
 plt.xlabel("time [ps]")
 plt.ylabel("population")
 plt.xlim([torch.min(xaxis),torch.max(xaxis)])
@@ -92,3 +120,125 @@ plt.ylim([0,1])
 plt.legend()
 plt.show()
 plt.close()
+
+def plot_pop(pop,method_name,save_name,xaxis):
+    # Create the main figure and axis
+    fig, ax1 = plt.subplots()
+    
+    # Main plot
+    for i in range(0, 2):
+        ax1.plot(xaxis, pop[:, i], color=colors[i], label=f"site {i+1}")
+        ax1.plot([torch.min(xaxis), torch.max(xaxis)], [boltzman_correct[i], boltzman_correct[i]], color=colors[i], linestyle="dashed")
+        ax1.plot([torch.min(xaxis), torch.max(xaxis)], [boltzman_incorrect[i], boltzman_incorrect[i]], linestyle="dotted", color=colors[i])
+    
+    pop_remaining = pop[:, 2].clone()
+    for i in range(3, 8):
+        pop_remaining += pop[:, i]
+    ax1.plot(xaxis, pop_remaining, label="sites 3-8", color=colors[2])
+    ax1.plot([torch.min(xaxis), torch.max(xaxis)], [boltzmann_correct_remaining, boltzmann_correct_remaining], linestyle="dashed", color=colors[2])
+    ax1.plot([torch.min(xaxis), torch.max(xaxis)], [boltzman_incorrect_remaining, boltzman_incorrect_remaining], linestyle="dotted", color=colors[2])
+    
+    # Main plot settings
+    ax1.set_xlabel("time [ps]")
+    ax1.set_ylabel("population")
+    ax1.set_xlim([torch.min(xaxis), torch.max(xaxis)])
+    ax1.set_ylim([0, 1])
+    
+    # First legend for the main plot data
+    first_legend = ax1.legend(loc='lower right', prop={'size': 10})
+    ax1.add_artist(first_legend)
+    
+    # Adding the secondary legend for the black lines
+    black_lines = [
+        plt.Line2D([0], [0], color='black', linestyle='solid', label=method_name),
+        plt.Line2D([0], [0], color='black', linestyle='dashed', label=r'$\hat{\rho}_{i,i}^{eq} \left ( \left\langle\overline{\hat{H}_S^{\rm  {eff},\alpha}(t)} \right\rangle\right )$'),
+        plt.Line2D([0], [0], color='black', linestyle='dotted', label=r'$\left\langle \overline{\hat{\rho}_{i,i}^{eq}\left(\hat{H}_S^{\rm  {eff},\alpha}(t)\right)} \right\rangle$')
+    ]
+    secondary_legend = ax1.legend(handles=black_lines, loc='upper right', prop={'size': 10})
+    ax1.add_artist(secondary_legend)
+    
+    # Creating the inset plot for zoomed-in section
+    ax2 = inset_axes(ax1, width="45%", height="30%", loc='upper left', bbox_to_anchor=(0.05, 0, 1, 0.99), bbox_transform=ax1.transAxes)
+    
+    # Plotting the same data in the inset
+    for i in range(0, 2):
+        ax2.plot(xaxis, pop[:, i], color=colors[i])
+    ax2.plot(xaxis, pop_remaining, color=colors[2])
+    
+    # Inset plot settings
+    ax2.set_xlim(0, 0.2)
+    ax2.set_ylim(0, 1)
+    ax2.tick_params(axis='x', labelsize='small')
+    ax2.tick_params(axis='x', labelsize='small') #.set_visible(False)
+    ax2.set_yticks(ax2.get_yticks()[[0,-1]])
+
+    
+    # Mark the inset on the main plot
+    #mark_inset(ax1, ax2, loc1=2, loc2=4, fc="none", ec="0.5")
+    
+    # Display the plot
+    plt.savefig(save_name,bbox_inches="tight",pad_inches=0)
+    plt.show()
+    plt.close()
+    print(f"{method_name}: Mean squared error right-hand side {torch.mean((boltzman_correct-torch.mean(pop[int(0.1*pop.shape[0]):, :],dim=0))**2)} ")
+    print(f"{method_name}: Mean squared error left-hand side {torch.mean((boltzman_incorrect-torch.mean(pop[int(0.1*pop.shape[0]):, :],dim=0))**2)} ")
+
+    
+xaxis=torch.linspace(0, total_time/1000,avg_blend.shape[0] )
+plot_pop(avg_blend,"TNISE int","plots/FMO_60ps_TNISE_interpolated.pdf",xaxis)
+plot_pop(avg_output,"TNISE orig ave","plots/FMO_60ps_TNISE_orig.pdf",xaxis)
+plot_pop(avg_boltzmann,"TNISE new ave","plots/FMO_60ps_TNISE_new.pdf",xaxis)
+
+def loadHEOM(file):
+    # Initialize lists to store time and population data
+    time_data = []
+    population_data = []
+    
+    # Open the file and read its contents
+    with open(file, 'r') as file:
+        lines = file.readlines()
+    
+    # Initialize a flag to start capturing data and a site index
+    capture_data = False
+    site_index = -1
+    
+    # Iterate over the lines in the file
+    for line in lines:
+        line = line.strip()  # Remove leading and trailing whitespace
+    
+        # Check if the line indicates a new site's data
+        if 'Re[pop(site' in line:
+            # Start capturing data for a new site
+            capture_data = True
+            site_index += 1
+            
+            # Initialize a new list for the current site's population data
+            population_data.append([])  # Ensure there's a list to append data to
+            
+            continue
+    
+        # If we are capturing data and the line is not empty
+        if capture_data and line:
+            try:
+                # Split the line by comma and convert to floats
+                time_value, pop_value = map(float, line.split(','))
+                
+                # Append time data if this is the first site
+                if site_index == 0:
+                    time_data.append(time_value*10**12)
+                
+                # Append population data to the current site
+                population_data[site_index].append(pop_value)
+            except ValueError:
+                # Handle lines that can't be converted (headers or invalid data)
+                continue
+
+    # Convert lists to torch tensors
+    time_data.append(60)
+    for i in range(len(population_data)):
+        population_data[i].append(population_data[i][-1])
+    time_array = torch.tensor(time_data)
+    population_array = torch.tensor(population_data).swapaxes(0, 1)
+    return  time_array,population_array
+xaxis,pop_HEOM = loadHEOM("data/population (12).txt")
+plot_pop(pop_HEOM,"HEOM","plots/FMO_60ps_HEOM.pdf",xaxis)
