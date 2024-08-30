@@ -59,11 +59,12 @@ plt.plot(auto_theoretical)
 plt.show()
 plt.close()
 for i in range(100):
-    print(i)
-    if i==0:
-        autos=[auto_theoretical]
-    else:
-        autos=[]
+    #print(i)
+    #if i==0:
+    #    autos=[auto_theoretical]
+    #else:
+    #    autos=[]
+    autos=[]
     for total_time in (100_000,1_000_000):
         Generated_Noise=noise_algorithm((reals,total_time//step), step,spectralfunc,save=True,save_name=f"noise_{total_time}.npy")
         auto=get_auto(Generated_Noise)
@@ -80,7 +81,7 @@ for i in range(100):
         plt.plot(auto[0:100])
         #print(len(auto))
         for cutoff in cutoffs:
-            #print(cutoff)
+            print(i, len(auto), cutoff)
             for damping in ["exp","gauss","step"]:       
                 J_new, x_axis ,auto_damp = SD_Reconstruct_FFT(auto,step,T,hbar,k,damping_type=damping,cutoff=cutoff,rescale=False)
                 S=spectralfunc(x_axis/hbar)
@@ -98,8 +99,8 @@ for i in range(100):
             
             errors_auto[f"super_{cutoff}_{len(auto)}_{i}"]=np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
             errors_J[f"super_{cutoff}_{len(auto)}_{i}"]=np.mean(np.abs(SD-J_new))/cm_to_eV
-            errors_auto[f"super_debias_{cutoff}_{len(auto)}"]=np.mean(np.abs(auto_debias[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
-            errors_J[f"super_debias_{cutoff}_{len(auto)}"]=np.mean(np.abs(SD-J_new_debias))/cm_to_eV
+            errors_auto[f"super_debias_{cutoff}_{len(auto)}_{i}"]=np.mean(np.abs(auto_debias[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV
+            errors_J[f"super_debias_{cutoff}_{len(auto)}_{i}"]=np.mean(np.abs(SD-J_new_debias))/cm_to_eV
             #print(f"super: errors_auto {np.mean(np.abs(auto_damp[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV} error_J {np.mean(np.abs(SD-J_new))/cm_to_eV}")
             #print(f"super_debias: errors_auto {np.mean(np.abs(auto_debias[0:2000]-auto_theoretical[0:2000]))/cm_to_eV/cm_to_eV} error_J {np.mean(np.abs(SD-J_new_debias))/cm_to_eV}")
             #plt.plot(x_axis,J_new,label="super")
