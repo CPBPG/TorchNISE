@@ -3,7 +3,7 @@ This file implements the fftNoiseGEN algorithm for time correlated Noise.
 """
 import numpy as np
 from scipy.interpolate import interp1d
-
+import torch
 
 #inspired by https://stackoverflow.com/a/64288861
 def inverse_sample(dist, shape, x_min=-100, x_max=100, n=1e5, **kwargs):
@@ -27,7 +27,22 @@ def inverse_sample(dist, shape, x_min=-100, x_max=100, n=1e5, **kwargs):
     f = interp1d(cumulative / cumulative.max(), x)
     return f(np.random.random(shape))
 
-
+def gen_noise(spectral_funcs,dt,shape):
+    if len(shape)!=3:
+        raise ValueError(f"gen_noise requres a shape tuple with (reals,steps,n_sites) but a tuple of size {len(shape)} was given")
+    reals,steps,n_sites = shape
+    if len(spectral_funcs)==1:
+        noise=torch.zeros(shape)
+        for i in range(shape[-1]):
+            noise[:,:,i]= torch.tensor(noise_algorithm((reals,steps),dt,spectral_funcs[0],axis=1))
+        return noise
+    elif len(spectral_funcs)==n_sites:
+        noise=torch.zeros(shape)
+        for i in range(shape[-1]):
+            noise[:,:,i]= torch.tensor(noise_algorithm((reals,steps),dt,spectral_funcs[i],axis=1))
+        return noise
+    else:
+        raise ValueError(f"len of spectral_funcs was {len(spectral_funcs)}, but must either be 1 or match number of sites ({n_sites})")
 
 def noise_algorithm(shape, dt, spectral_func,axis=-1, sample_dist=None, discard_half=True, save=False, save_name=None):
     """
