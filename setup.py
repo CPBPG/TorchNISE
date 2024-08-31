@@ -4,18 +4,18 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="mlnise",
+    name="torchnise",
     version="0.1.0",
     author="Yannick Holkamp, Emiliano Godinez, Ulrich Kleinekathöfer",
     author_email="yholtkamp@constructor.university",
-    description="MLNISE is machine learning based implementation of the NISE algorithm for non markovian dynamics. ",
+    description="several nise extensions. ",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/ausstein/MLNISE",  
     packages=find_packages(),  # Automatically find packages in the project
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
+        "License :: Appache",
         "Operating System :: OS Independent",
     ],
     python_requires='>=3.10',

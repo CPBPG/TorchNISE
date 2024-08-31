@@ -2,7 +2,7 @@
 This file implements various Spectral functions returning the power spectrum.
 """
 import numpy as np
-import mlnise.units as units
+import torchnise.units as units
 
 def spectral_Drude(w,gamma,strength,T): #drude spectral density
     #converting the frequencies to angular frequencies. Update: done already on the definition as requested by professor        

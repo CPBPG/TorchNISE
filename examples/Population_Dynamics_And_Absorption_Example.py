@@ -2,14 +2,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import functools
-from mlnise.example_spectral_functions import spectral_Drude_Lorentz_Heom
+from torchnise.example_spectral_functions import spectral_Drude_Lorentz_Heom
 
-import mlnise
+import torchnise
 
 
 energy_unit="cm-1"
 time_unit="fs"
-mlnise.units.set_units(e_unit=energy_unit,t_unit=time_unit)
+torchnise.units.set_units(e_unit=energy_unit,t_unit=time_unit)
 dt=1
 total_time=1000
 realizations=1000
@@ -23,7 +23,7 @@ H=torch.tensor([[100,100],
 n_sites=H.shape[0]
 T=300 #K
 
-Omega_k=torch.tensor([0,725,1200])
+Omega_k=torch.tensor([0,725,1200])/torchnise.units.hbar
 lambda_k=torch.tensor([100,100,100])
 v_k=torch.tensor([1/100,1/100,1/100])
 
@@ -35,7 +35,7 @@ initialState = torch.tensor([1,0])
 
 Mode1="Population"
 T_correction1='TNISE'
-Averaging1='Interpolated'
+Averaging1='interpolated' #boltzmann standard or interpolated
 
 Mode2="Absorption"
 T_correction2='None'
@@ -43,10 +43,10 @@ Averaging2="Standard"
 dipole_moments=torch.tensor([[1,0,0],
                              [1,0,0]])
 
-population, xaxis_p = mlnise.nise.run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,
+population, xaxis_p = torchnise.nise.run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,
                T_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device)
 
-absorption, xaxis_f = mlnise.nise.run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,
+absorption, xaxis_f = torchnise.nise.run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,
                T_correction=T_correction2,mode=Mode2,averaging_method=Averaging2,mu=dipole_moments, device=device)
 
 for i in range(n_sites):

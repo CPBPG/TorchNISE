@@ -1,12 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from mlnise.example_spectral_functions import spectral_Log_Normal_Lorentz,spectral_Lorentz,spectral_Drude
+from torchnise.example_spectral_functions import spectral_Log_Normal_Lorentz,spectral_Lorentz,spectral_Drude
 import functools
-from mlnise.fft_noise_gen import noise_algorithm
+from torchnise.fft_noise_gen import noise_algorithm
 import torch
 import tqdm
 import warnings
 from scipy.optimize import nnls
+import torchnise.units as units
 
 cm_to_eV=1.23984E-4
 def nnls_pyytorch(A,b):
@@ -47,7 +48,7 @@ def get_auto(noise):
     return auto
 
 
-def SD_Reconstruct_FFT(auto,dt,T,hbar,k,minW=None,maxW=None,damping_type=None,cutoff=None,rescale=False):
+def SD_Reconstruct_FFT(auto,dt,T,minW=None,maxW=None,damping_type=None,cutoff=None,rescale=False):
     
     N_cut=len(auto)
     dw_t = 2*np.pi/(2*N_cut*dt)
@@ -84,11 +85,11 @@ def SD_Reconstruct_FFT(auto,dt,T,hbar,k,minW=None,maxW=None,damping_type=None,cu
     minWindex = np.argmin(np.abs(full_w_t-minW)) #find the closest value to minW and maxW from the fourier axis
     maxWindex = np.argmin(np.abs(full_w_t-maxW))
     w_t = full_w_t[minWindex:maxWindex+1]  #array of frequencies to use in 1/fs. Max frequency is not necessarily this. Only ought to be less than nyquist frequency: dw*N/2
-    x_axis = hbar*w_t # x-axis on the graph from paper  jcp12    
+    x_axis = units.hbar*w_t # x-axis on the graph from paper  jcp12    
     reverse_auto=np.flip(auto_damp[1:-1])
     concat_auto=np.concatenate((auto_damp,reverse_auto))
     
-    J_new=x_axis*np.fft.fft(concat_auto)[0:len(x_axis)].real*dt/(hbar*2*np.pi*k*T)
+    J_new=x_axis*np.fft.fft(concat_auto)[0:len(x_axis)].real*dt/(units.hbar*2*np.pi*units.k*T)
     return J_new, x_axis ,auto_damp
 
 def tv_norm_2d(lambda_ij):
@@ -249,7 +250,7 @@ def ensure_tensor_on_device(array, device='cuda',dtype=torch.float):
     else:
         raise TypeError("Input must be a numpy array or a PyTorch tensor.")
 
-def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_norm_penalty=1, 
+def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_penalty=1, 
                                    solution_penalty=10000,negative_penalty=1,ljnorm_penalty=0 ,j=0.5, lr=0.01, max_iter=1000, eta=1e-7, 
                                    tol=1e-7, device='cuda', cutoff=None, 
                                    sample_frequencies=None, top_n=False,top_tresh=False, second_optimization=False,chunk_memory=1e9,auto_length_debias=None,auto_length_return=None):
@@ -260,8 +261,6 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
         auto (torch.Tensor): Autocorrelation function.
         dt (float): Time step between autocorrelation points.
         T (float): Temperature.
-        hbar (float): Reduced Planck constant.
-        k (float): Boltzmann constant.
         sparcity_penalty (float): Penalty term for sparsity in the solution.
         l1_norm_penalty (float): L1 norm penalty for regularization.
         solution_penalty (float): Penalty for the solution norm.
@@ -299,8 +298,8 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
     t_axis = dt * torch.arange(0, N_cut, device=device)
     t_axis_full = dt * torch.arange(0, N, device=device)
     t_axis_very_orig = dt *torch.arange(0, len(auto_very_orig), device=device)
-    frequencies = torch.arange(0, 0.2, 0.00005, device=device) / hbar
-    dampings = torch.arange(1, 200, 0.5, device=device) * cm_to_eV / hbar
+    frequencies = torch.arange(0, 0.2, 0.00005, device=device) / units.hbar
+    dampings = torch.arange(1, 200, 0.5, device=device) * cm_to_eV / units.hbar
 
     damping_term = torch.exp(-dampings[None, :] * t_axis[:, None])
     frequency_term = torch.cos(frequencies[None, :] * t_axis[:, None])
@@ -358,7 +357,7 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
     
 
     if sample_frequencies is None:
-        sample_frequencies = torch.arange(0, 0.2, 0.00001, device=device) / hbar
+        sample_frequencies = torch.arange(0, 0.2, 0.00001, device=device) / units.hbar
     else:
         sample_frequencies = ensure_tensor_on_device(sample_frequencies, device=device)
 
@@ -413,7 +412,7 @@ def sd_reconstruct_superresolution(auto, dt, T, hbar, k, sparcity_penalty=1, l1_
             J_new_debias = None
             auto_super_debias=None
             
-        xaxis =    (sample_frequencies * hbar).detach().cpu().numpy()    
+        xaxis =    (sample_frequencies * units.hbar).detach().cpu().numpy()    
     
         return J_new, xaxis , auto_super , J_new_debias,auto_super_debias
         

@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import tqdm
-import mlnise
-from mlnise.pytorch_utility import (
+import torchnise
+from torchnise.pytorch_utility import (
     batch_trace,
     create_empty_mmap_tensor,
     matrix_logh,
@@ -15,7 +15,7 @@ from mlnise.pytorch_utility import (
     absorption_time_domain,
     absorb_time_to_freq
     )
-from mlnise.fft_noise_gen import gen_noise
+from torchnise.fft_noise_gen import gen_noise
 
 
 
@@ -25,8 +25,8 @@ def NISE_propagate(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_cor
                    device="cpu",saveU=False,saveCoherence=False,MLNISE_inputs=None,MLNISE_Model=None):
     
     n_sites=Hfull.shape[-1] #Number of Sites
-    factor=1j* 1/mlnise.units.hbar*dt*mlnise.units.t_unit
-    kBT=T*mlnise.units.k
+    factor=1j* 1/torchnise.units.hbar*dt*torchnise.units.t_unit
+    kBT=T*torchnise.units.k
     
     total_steps=int(total_time/dt)+1
     total_steps_saved=int(total_time/dt/save_Interval)+1
@@ -161,7 +161,7 @@ def NISE_averaging(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_cor
 def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_Interval=1,
                T_correction="None",mode="Population",mu=None,averaging_method="Standard", 
                lifetime_factor=5,maxreps=100000,MLNISE_inputs=None,device="cpu"):
-    hbar = mlnise.units.hbar
+    hbar = torchnise.units.hbar
     
     total_steps = int((total_time + dt) / dt)
     save_steps  = int((total_time + dt*save_Interval) / (dt*save_Interval))
@@ -204,7 +204,7 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
         num_chunks=1
     chunk_size = (realizations + num_chunks - 1) // num_chunks  # This ensures each chunk is not greater than reals
 
-    if mode.lower()=="population" and T_correction.lower() in ["mlnise","tnise"]:
+    if mode.lower()=="population" and T_correction.lower() in ["mlnise","tnise"] and averaging_method in ["interpolated","boltzmann"]:
         all_coherence = torch.zeros(num_chunks,save_steps,n_state,n_state)
         all_lifetimes = torch.zeros(num_chunks,n_state)
     elif mode.lower() =="absorption":
@@ -223,14 +223,14 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
                                                                         averaging_method=averaging_method,lifetime_factor=lifetime_factor,
                                                                         device=device,saveU=saveU,saveCoherence=True,MLNISE_inputs=None)
 
-        if mode.lower() =="population" and T_correction.lower() in ["mlnise","tnise"]:
+        if mode.lower() =="population" and T_correction.lower() in ["mlnise","tnise"] and averaging_method in ["interpolated","boltzmann"]:
             all_coherence[i//chunk_size,:,:,:]= coherence_ave
             all_lifetimes[i//chunk_size,:] = lifetimes
         elif mode.lower() == "absorption":
             absorb_time=absorption_time_domain(U,mu)
             all_absorb_time.append(absorb_time)
         all_output[i//chunk_size,:,:]=population_averaged
-    if mode.lower() =="population" and T_correction.lower() in ["mlnise","tnise"]:
+    if mode.lower() =="population" and T_correction.lower() in ["mlnise","tnise"] and averaging_method in ["interpolated","boltzmann"]:
         lifetimes=torch.mean(all_lifetimes,dim=0)
         print(f"lifetimes are {lifetimes}")
         avg_output,_ = averaging(all_output,averaging_method,lifetimes=lifetimes,step=dt,coherence=all_coherence,weight=torch.tensor(weights,dtype=torch.float))#np.average(all_oldave, axis=0, weights=weights)

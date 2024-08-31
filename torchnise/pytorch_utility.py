@@ -7,7 +7,7 @@ import tempfile
 import warnings
 import glob
 from scipy.optimize import dual_annealing
-import mlnise.units as units
+import torchnise.units as units
 # Utility Functions
 def renorm(phi: torch.Tensor, eps: float = 1e-8, dim: int = -1) -> torch.Tensor:
     """
