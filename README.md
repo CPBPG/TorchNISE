@@ -6,7 +6,7 @@ Quantum Dynamics" (add a link here) and "[Machine-learned correction to ensemble
 
 ## Installation
 
-The first step to install `mlnise` is to clone this repository.
+The first step to install `torchnise` is to clone this repository.
 
 ```bash
 git clone https://github.com/CPBPG/TorchNISE.git
@@ -21,18 +21,18 @@ pip install .
 ## Usage
 
 ```python
-import mlnise
+import torchnise
 
 # include code here
 ```
 
-or run the sample python script
+or run the examples from the example folder
+they include one example for population dynamics and absorption and one example for noise generation and spectral density reconstruction
 
 ```bash
 python run_mlnise.py
 ```
 
-this will generate the following graph:
+The current state of the code is not stable and will be continued to be updated
 
-![Sample graph showing the population dynamics](images/sample_graph.png)
 
