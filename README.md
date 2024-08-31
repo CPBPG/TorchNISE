@@ -29,10 +29,6 @@ import torchnise
 or run the examples from the example folder
 they include one example for population dynamics and absorption and one example for noise generation and spectral density reconstruction
 
-```bash
-python run_mlnise.py
-```
-
 The current state of the code is not stable and will be continued to be updated
 
 
