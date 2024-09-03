@@ -233,7 +233,7 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
         all_output[i//chunk_size,:,:]=population_averaged
     if mode.lower() =="population" and T_correction.lower() in ["mlnise","tnise"] and averaging_method in ["interpolated","boltzmann"]:
         lifetimes=torch.mean(all_lifetimes,dim=0)
-        print(f"lifetimes are {lifetimes}")
+        print(f"lifetimes multipiled by lieftime factor are {lifetimes}")
         avg_output,_ = averaging(all_output,averaging_method,lifetimes=lifetimes,step=dt,coherence=all_coherence,weight=torch.tensor(weights,dtype=torch.float))#np.average(all_oldave, axis=0, weights=weights)
     else:
         lifetimes=None

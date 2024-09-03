@@ -11,7 +11,7 @@ energy_unit="cm-1"
 time_unit="fs"
 torchnise.units.set_units(e_unit=energy_unit,t_unit=time_unit)
 dt=1
-total_time=100
+total_time=1000
 realizations=1000
 device="cpu" #"cuda" for GPU "cpu" for CPU
 if device=="cuda":
@@ -29,12 +29,12 @@ v_k=torch.tensor([1/100,1/100,1/100])
 
 spectralfunc=functools.partial(spectral_Drude_Lorentz_Heom,Omega_k=Omega_k,
                                lambda_k=lambda_k,v_k=v_k,T=T)
-spectral_funcs=[spectralfunc,spectralfunc] 
+spectral_funcs=[spectralfunc,spectralfunc] #u can specify different spectral functions for different sites. for numerical spectral densites use interpolate1d from scipy
 
 initialState = torch.tensor([1,0])
 
 Mode1="Population"
-T_correction1='TNISE'
+T_correction1='TNISE' #TNISE or NONE MLNISE will come soon
 Averaging1='interpolated' #boltzmann standard or interpolated
 
 Mode2="Absorption"
@@ -46,9 +46,6 @@ dipole_moments=torch.tensor([[1,0,0],
 population, xaxis_p = torchnise.nise.run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,
                T_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device)
 
-absorption, xaxis_f = torchnise.nise.run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,
-               T_correction=T_correction2,mode=Mode2,averaging_method=Averaging2,mu=dipole_moments, device=device)
-
 for i in range(n_sites):
     plt.plot(xaxis_p,population[:,i],label=f"site {i+1}")
 plt.xlabel("time [ps]")
@@ -58,6 +55,11 @@ plt.ylim([0,1])
 plt.legend()
 plt.show()
 plt.close()
+
+absorption, xaxis_f = torchnise.nise.run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,
+               T_correction=T_correction2,mode=Mode2,averaging_method=Averaging2,mu=dipole_moments, device=device)
+
+
 
 plt.plot(xaxis_f,absorption)
 plt.ylabel("absorption [a.u.]")
