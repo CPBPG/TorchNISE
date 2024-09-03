@@ -4,17 +4,18 @@ import torch.nn.functional as F
 import numpy as np
 import tqdm
 import torchnise
+
 from torchnise.pytorch_utility import (
-    batch_trace,
-    create_empty_mmap_tensor,
-    matrix_logh,
     renorm,
-    tensor_to_mmap,
     estimate_lifetime,
     averaging,
+    )
+
+from torchnise.absorption import (
     absorption_time_domain,
     absorb_time_to_freq
     )
+
 from torchnise.fft_noise_gen import gen_noise
 
 
