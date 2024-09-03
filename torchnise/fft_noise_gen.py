@@ -4,6 +4,7 @@ This file implements the fftNoiseGEN algorithm for time correlated Noise.
 import numpy as np
 from scipy.interpolate import interp1d
 import torch
+import torchnise.units as units
 
 #inspired by https://stackoverflow.com/a/64288861
 def inverse_sample(dist, shape, x_min=-100, x_max=100, n=1e5, **kwargs):
@@ -82,10 +83,10 @@ def noise_algorithm(shape, dt, spectral_func,axis=-1, sample_dist=None, discard_
         white_noise = np.random.normal(0, 1, size=shape)
 
     # Fourier transform of the white noise along the steps axis
-    freq = np.fft.fft(white_noise, axis=axis) * (1 / np.sqrt(dt))
+    freq = np.fft.fft(white_noise, axis=axis) * (1 / np.sqrt(dt*units.t_unit))
 
     # Frequencies associated with the FFT of white noise
-    freq_bins = np.fft.fftfreq(shape[axis], dt) * 2 * np.pi
+    freq_bins = np.fft.fftfreq(shape[axis], dt*units.t_unit) * 2 * np.pi
 
     # Envelope the frequencies with the spectral function
     spectral_density = np.sqrt(spectral_func(freq_bins))  

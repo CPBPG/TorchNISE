@@ -161,8 +161,9 @@ def NISE_averaging(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_cor
         
 
 def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_Interval=1,
-               T_correction="None",mode="Population",mu=None,averaging_method="Standard", 
-               lifetime_factor=5,maxreps=100000,MLNISE_inputs=None,device="cpu"):
+               T_correction="None",mode="Population",mu=None, aborption_padding=10000,
+               averaging_method="Standard", lifetime_factor=5,maxreps=100000,MLNISE_inputs=None,
+               device="cpu"):
     hbar = torchnise.units.hbar
     
     total_steps = int((total_time + dt) / dt)
@@ -173,14 +174,12 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
     avg_absorb_time = None
     x_axis = None
     absorb_f = None
-    avg_oldave = None
-    avg_newave = None
     avg_output = None
     if time_dependent_H:
         trajectory_steps = H.shape[0]
         if realizations > 1:
             window = int((trajectory_steps - total_steps) / (realizations - 1))
-            print("window is", window * dt, "fs")
+            print(f"window is {window * dt} {torchnise.units.current_t_unit}")
 
     def generate_Hfull_chunk(chunk_size, start_index=0,window=1):
         if time_dependent_H:
@@ -211,7 +210,7 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
         all_lifetimes = torch.zeros(num_chunks,n_state)
     elif mode.lower() =="absorption":
         all_absorb_time=[]
-    saveU = mode.lower() =="absorption"#True #
+    saveU = mode.lower() =="absorption"
 
     weights = []
     all_output = torch.zeros(num_chunks,save_steps,n_state)
@@ -240,16 +239,11 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
         lifetimes=None
         avg_output = np.average(all_output, axis=0, weights=weights)
     
+
     if mode.lower() =="absorption":
-        #avg_meancoherence = np.average(all_meancoherence, axis=0, weights=weights)
         avg_absorb_time = np.average(all_absorb_time, axis=0, weights=weights)
-    
-    
-
-
-    if mode.lower() =="absorption":
-        pad=int(10000/dt)
-        absorb_f, x_axis = absorb_time_to_freq(avg_absorb_time,pad,total_time,dt)
+        pad=int(aborption_padding/(dt*torchnise.units.t_unit))
+        absorb_f, x_axis = absorb_time_to_freq(avg_absorb_time,total_time,dt,pad=pad)
         return absorb_f, x_axis
     else:
         return avg_output, torch.linspace(0,total_time,avg_output.shape[0])
