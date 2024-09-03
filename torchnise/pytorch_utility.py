@@ -209,6 +209,20 @@ def clean_temp_files():
     )
 
 def golden_section_search(func, a, b, tol):
+    """
+    Perform a golden section search to find the minimum of a unimodal function
+    on a closed interval [a, b].
+
+    Args:
+        func (callable): The unimodal function to minimize.
+        a (float): The lower bound of the search interval.
+        b (float): The upper bound of the search interval.
+        tol (float): The tolerance for stopping the search. The search stops when
+                     the interval length is less than this value.
+
+    Returns:
+        float: The point at which the function has its minimum within the interval [a, b].
+    """
     golden_ratio = (1 + 5 ** 0.5) / 2
 
     c = b - (b - a) / golden_ratio
@@ -225,21 +239,30 @@ def golden_section_search(func, a, b, tol):
 
     return (b + a) / 2
 
+def smooth_damp_to_zero(f_init, start, end):
+    """
+    Smoothly damp a segment of an array to zero using an exponential damping function.
 
+    Args:
+        f_init (numpy.ndarray): Initial array to be damped.
+        start (int): Starting index of the segment to damp.
+        end (int): Ending index of the segment to damp.
 
-def smooth_damp_to_zero(f_init,start,end):
-    f=f_init.copy()
-    f[end:]=0
+    Returns:
+        numpy.ndarray: Array after applying the damping.
+    """
+    f = f_init.copy()
+    f[end:] = 0
+
     def expdamp_helper(a):
-        x=a.copy()
-        x[x<=0]=0
-        x[x>0]=np.exp(-1/x[x>0])
+        x = a.copy()
+        x[x <= 0] = 0
+        x[x > 0] = np.exp(-1 / x[x > 0])
         return x
-    damprange=np.arange(end-start,dtype=float)[::-1]/(end-start)
-    f[start:end]=f[start:end]*expdamp_helper(damprange)/(expdamp_helper(damprange)+expdamp_helper(1-damprange))
+
+    damprange = np.arange(end - start, dtype=float)[::-1] / (end - start)
+    f[start:end] = f[start:end] * expdamp_helper(damprange) / (expdamp_helper(damprange) + expdamp_helper(1 - damprange))
     return f
-
-
 
 """
 # Check if torch.Tensor already has the to_mmap method
