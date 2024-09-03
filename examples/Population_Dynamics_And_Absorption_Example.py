@@ -11,7 +11,7 @@ energy_unit="cm-1"
 time_unit="fs"
 torchnise.units.set_units(e_unit=energy_unit,t_unit=time_unit)
 dt=1
-total_time=1000
+total_time=100
 realizations=1000
 device="cpu" #"cuda" for GPU "cpu" for CPU
 if device=="cuda":

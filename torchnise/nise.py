@@ -5,10 +5,11 @@ import numpy as np
 import tqdm
 import torchnise
 
-from torchnise.pytorch_utility import (
-    renorm,
+from torchnise.pytorch_utility import renorm
+
+from torchnise.averaging_and_lifetimes import (
     estimate_lifetime,
-    averaging,
+    averaging
     )
 
 from torchnise.absorption import (
