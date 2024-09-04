@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 from torchnise.fft_noise_gen import noise_algorithm
 from torchnise.sd_from_noise import SD_Reconstruct_FFT, get_auto, sd_reconstruct_superresolution
-from torchnise.example_spectral_functions import spectral_Drude_Lorentz_Heom
+from torchnise.example_spectral_functions import spectral_drude_lorentz_heom
 import functools
 import torchnise.units as units
 
@@ -16,8 +16,8 @@ Omega_k=torch.tensor([0,725,1200])/units.hbar
 lambda_k=torch.tensor([100,100,100])
 v_k=torch.tensor([1/100,1/100,1/100])
 
-spectralfunc=functools.partial(spectral_Drude_Lorentz_Heom,Omega_k=Omega_k,
-                               lambda_k=lambda_k,v_k=v_k,T=T)
+spectralfunc=functools.partial(spectral_drude_lorentz_heom,omega_k=Omega_k,
+                               lambda_k=lambda_k,vk=v_k,temperature=T)
 
 dt=10 #fs
 cutoff=5000 #fs
