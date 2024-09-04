@@ -1,16 +1,21 @@
 import numpy as np
-import matplotlib.pyplot as plt
-from torchnise.example_spectral_functions import spectral_Log_Normal_Lorentz,spectral_Lorentz,spectral_Drude
-import functools
-from torchnise.fft_noise_gen import noise_algorithm
 import torch
-import tqdm
 import warnings
 from scipy.optimize import nnls
 import torchnise.units as units
 
-cm_to_eV=1.23984E-4
-def nnls_pyytorch(A,b):
+
+def nnls_pyytorch_scipy(A,b):
+    """
+    Solve the non-negative least squares problem for PyTorch Tensors using scipy.
+
+    Args:
+        A (torch.Tensor): The input matrix A.
+        b (torch.Tensor): The input vector b.
+
+    Returns:
+        torch.Tensor: Solution vector x_nnls as a PyTorch tensor.
+    """
     A_np = A.detach().cpu().numpy()
     b_np = b.detach().cpu().numpy()
     # Solve the NNLS problem
@@ -19,9 +24,24 @@ def nnls_pyytorch(A,b):
     # Convert the result back to a PyTorch tensor
     x_nnls_torch = torch.from_numpy(x_nnls).to(A.device).to(A.dtype)
     return x_nnls_torch
-    
-#Paper Method Autocorrelation function 
-def autocorrelation(noise,i,N): #matrix implementation of the autocorrelation calculation. 
+
+def autocorrelation(noise,i,N): 
+    """
+    Calculate the autocorrelation function for a given noise matrix.
+
+    Args:
+        noise (np.ndarray): The input noise matrix.
+        i (int): The current index for autocorrelation calculation.
+        N (int): The total number of timesteps.
+
+    Returns:
+        np.ndarray: The autocorrelation value for the given index i.
+    """
+    cor1 = noise[:, :N - i]
+    cor2 = noise[:, i:]
+    res = cor1 * cor2
+    C = np.mean(res, axis=1)
+    return C
     cor1=noise[:,:N-i]
     cor2=noise[:,i:]
     res=cor1*cor2
@@ -29,98 +49,196 @@ def autocorrelation(noise,i,N): #matrix implementation of the autocorrelation ca
     return C #returns the Calculation for a certain noise matrix, and index i, i.e. C(t_i). Since it is a matrix, this is the ith-column of the total autocorrelation matrix
 
 def Ccalc(noise,N,reals):
+    """
+    Calculate the autocorrelation matrix for the entire noise dataset.
+
+    Args:
+        noise (np.ndarray): The input noise matrix.
+        N (int): The total number of timesteps.
+        reals (int): The number of realizations.
+
+    Returns:
+        np.ndarray: The autocorrelation matrix with size (reals, N).
+    """
     C = np.zeros((reals,N))
     for i in range(int(N//2)): #tqdm(range(N//2)):#Calculating the autocorrelation for the whole matrix. Rows: realizations, Columns: different i's
         C[:,i] = autocorrelation(noise,i,N)
     return C # matrix with size reals x N
 
-#Calculate expectation value
-def expval(noise,N,reals):
+def expval_auto(noise,N,reals):
+    """
+    Calculate the expectation value of the autocorrelation function.
+
+    Args:
+        noise (np.ndarray): The input noise matrix.
+        N (int): The total number of timesteps.
+        reals (int): The number of realizations.
+
+    Returns:
+        np.ndarray: The expectation value of the autocorrelation function.
+    """
     summation = Ccalc(noise,N,reals) #Matrix with size reals x N. each row contains C(t)_i for eachh realization i 
     return np.mean(summation,axis=0) #calculating the mean over the different realizations
 
 
 def get_auto(noise):
+    """
+    Get the autocorrelation function for a given noise dataset.
+
+    Args:
+        noise (np.ndarray): The input noise matrix.
+
+    Returns:
+        np.ndarray: The autocorrelation function.
+    """
     N = len(noise[0,:])
     reals = len(noise[:,0])
-    C = expval(noise,N,reals) #autocorrelation array, len = N, with dt, gamma and strength
+    C = expval_auto(noise,N,reals) #autocorrelation array, len = N, with dt, gamma and strength
     auto = C[:int(N//2)] #only trusting half the values employed
     return auto
 
 
 def SD_Reconstruct_FFT(auto,dt,T,minW=None,maxW=None,damping_type=None,cutoff=None,rescale=False):
-    
-    N_cut=len(auto)
-    dw_t = 2*np.pi/(2*N_cut*dt)
-    if maxW==None:
-        maxW=N_cut*dw_t
-    if minW==None:
-        minW=0
-        
-    if maxW>N_cut*dw_t:
-        print("Warning maxW bigger than maximum computable value")
-    #    return
+    """
+    Reconstruct the spectral density using FFT from the autocorrelation function.
 
-    t_axis=dt*np.arange(0, N_cut)        
-    damping =np.ones_like(auto)
+    Args:
+        auto (np.ndarray): Autocorrelation function.
+        dt (float): Time step between autocorrelation points.
+        T (float): Temperature.
+        minW (float, optional): Minimum frequency to consider. Defaults to None.
+        maxW (float, optional): Maximum frequency to consider. Defaults to None.
+        damping_type (str, optional): Type of damping to apply ('step', 'gauss', 'exp'). Defaults to None.
+        cutoff (float, optional): Cutoff for damping. Defaults to None.
+        rescale (bool, optional): If True, rescale the autocorrelation function. Defaults to False.
+
+    Returns:
+        tuple: (np.ndarray, np.ndarray, np.ndarray) - Reconstructed spectral density, frequency axis, and damped autocorrelation.
+    """
+    N_cut=len(auto)
+    dw_t = 2 *np.pi / ( 2 * N_cut * dt * units.t_unit)
+    maxW = maxW if maxW is not None else N_cut * dw_t
+    minW = minW if minW is not None else 0
+        
+    if maxW > N_cut * dw_t:
+        print(f"Warning maxW {maxW} bigger than maximum computable value {N_cut * dw_t}")
+
+    t_axis= dt * np.arange(0, N_cut)        
+    damping = np.ones_like(auto)
     
     if damping_type:
-        if damping_type.lower()=="step":
-            damping[int(cutoff)//dt:]=0
-        elif damping_type.lower()=="gauss":
-            damping=np.exp(-(t_axis/cutoff)**2)
-        elif damping_type.lower()=="exp":
-            damping=np.exp(-(t_axis/cutoff))
+        if damping_type.lower() == "step":
+            damping[int(cutoff // dt):] = 0
+        elif damping_type.lower() == "gauss":
+            damping = np.exp(-(t_axis / cutoff) ** 2)
+        elif damping_type.lower() == "exp":
+            damping = np.exp(-t_axis / cutoff)
         else:
-            raise NotImplementedError(f"Damping {damping_type} not available must be one of 'step', 'gauss' or 'exp'")
+            raise NotImplementedError(f"Damping {damping_type} not available. Must be one of 'step', 'gauss', or 'exp'")
+
     
-    auto_damp=auto*damping
+    auto_damp = auto * damping
     
     if rescale:
-        auto_damp=auto_damp*np.mean(np.abs(auto))/np.mean(np.abs(auto_damp))       
+        auto_damp = auto_damp * np.mean(np.abs(auto)) / np.mean(np.abs(auto_damp))   
 
     #Calculation of spectral density
-    dw_t = 2*np.pi/(2*N_cut*dt) #creating dw in units of 1/fs. denominator: 2*N_cut = N
-    full_w_t = np.arange(0,N_cut*dw_t,dw_t)
-    minWindex = np.argmin(np.abs(full_w_t-minW)) #find the closest value to minW and maxW from the fourier axis
-    maxWindex = np.argmin(np.abs(full_w_t-maxW))
-    w_t = full_w_t[minWindex:maxWindex+1]  #array of frequencies to use in 1/fs. Max frequency is not necessarily this. Only ought to be less than nyquist frequency: dw*N/2
-    x_axis = units.hbar*w_t # x-axis on the graph from paper  jcp12    
-    reverse_auto=np.flip(auto_damp[1:-1])
-    concat_auto=np.concatenate((auto_damp,reverse_auto))
+    dw_t = 2 * np.pi / (2 * N_cut * dt) #creating dw in units of 1/fs. denominator: 2*N_cut = N
+    full_w_t = np.arange(0, N_cut * dw_t, dw_t)
+    minWindex = np.argmin(np.abs(full_w_t - minW)) #find the closest value to minW and maxW from the fourier axis
+    maxWindex = np.argmin(np.abs(full_w_t - maxW))
+    w_t = full_w_t[minWindex:maxWindex + 1]  #array of frequencies to use in 1/fs. Max frequency is not necessarily this. Only ought to be less than nyquist frequency: dw*N/2
+    x_axis = units.hbar * w_t # x-axis on the graph from paper  jcp12    
+    reverse_auto = np.flip(auto_damp[1:-1])
+    concat_auto = np.concatenate((auto_damp, reverse_auto)) #calculate DCT with FFT
     
-    J_new=x_axis*np.fft.fft(concat_auto)[0:len(x_axis)].real*dt/(units.hbar*2*np.pi*units.k*T)
-    return J_new, x_axis ,auto_damp
+    J_new = x_axis * np.fft.fft(concat_auto)[:len(x_axis)].real * dt / (units.hbar * 2 * np.pi * units.k * T)
+    return J_new, x_axis, auto_damp
 
 def tv_norm_2d(lambda_ij):
-    """Calculate the total variation norm across both dimensions."""
+    """
+    Calculate the total variation norm across both dimensions.
+
+    Args:
+        lambda_ij (torch.Tensor): Input tensor.
+
+    Returns:
+        torch.Tensor: Total variation norm.
+    """
     tv = torch.sum(torch.abs(lambda_ij[:, :-1] - lambda_ij[:, 1:])) + \
          torch.sum(torch.abs(lambda_ij[:-1, :] - lambda_ij[1:, :]))
     return tv
 
-def objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,negative_penalty,ljnorm_penalty, j):
-    """Objective function with TV norm, L1 norm, and penalty for constraint violation."""
-    tv = tv_norm_2d(lambda_ij)
-    l1_norm = torch.sum(torch.abs(lambda_ij)) #torch.sum(torch.sqrt(torch.abs(lambda_ij)))
-    lj_norm = torch.sum(torch.abs(lambda_ij)**j)
-    negative_penalty= -torch.sum(lambda_ij)+torch.sum(torch.abs(lambda_ij))
+def objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty, negative_penalty, ljnorm_penalty, j):
+    """
+    Objective function with TV norm, L1 norm, and penalties for constraints. Used for Superresolution
+
+    Args:
+        lambda_ij (torch.Tensor): Current solution tensor.
+        A (torch.Tensor): Matrix for the linear system.
+        C (torch.Tensor): Target vector.
+        sparcity_penalty (float): Penalty term for sparsity in the solution.
+        l1_norm_penalty (float): L1 norm penalty for regularization.
+        solution_penalty (float): Penalty for the solution norm.
+        negative_penalty (float): Penalty for negative peaks.
+        ljnorm_penalty (float): L_j norm penalty for regularization.
+        j (float): Exponent for the L_j norm.
+
+    Returns:
+        torch.Tensor: Value of the objective function.
+    """
     penalty = solution_penalty * 0.5 * torch.norm(A @ lambda_ij.flatten() - C) ** 2
-    result= sparcity_penalty*tv + l1_norm_penalty*l1_norm +ljnorm_penalty*lj_norm + negative_penalty*negative_penalty+ penalty
-    #print(f"penalty {100*penalty/result:.3f}% Variation {100*1/mu*tv/result:.3f}%  l1_norm {100*l1_norm/result:.3f}%")
+    result = objective_function_no_penalty(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, negative_penalty, ljnorm_penalty, j) +  penalty
     return result
 
-def objective_function_no_penalty(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty,negative_penalty,ljnorm_penalty, j):
-    """Objective function with TV norm, L1 norm for constraint violation."""
+def objective_function_no_penalty(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, negative_penalty, ljnorm_penalty, j):
+    """
+    Objective function without the solution penalty.
+
+    Args:
+        lambda_ij (torch.Tensor): Current solution tensor.
+        A (torch.Tensor): Matrix for the linear system.
+        C (torch.Tensor): Target vector.
+        sparcity_penalty (float): Penalty term for sparsity in the solution.
+        l1_norm_penalty (float): L1 norm penalty for regularization.
+        negative_penalty (float): Penalty for negative peaks.
+        ljnorm_penalty (float): L_j norm penalty for regularization.
+        j (float): Exponent for the L_j norm.
+
+    Returns:
+        torch.Tensor: Value of the objective function without the solution penalty.
+    """
     tv = tv_norm_2d(lambda_ij)
-    l1_norm = torch.sum(torch.abs(lambda_ij)) #torch.sum(torch.sqrt(torch.abs(lambda_ij)))
-    lj_norm = torch.sum(torch.abs(lambda_ij)**j)
-    negative_penalty= -torch.sum(lambda_ij)+torch.sum(torch.abs(lambda_ij))
-    result= sparcity_penalty*tv + l1_norm_penalty*l1_norm  +ljnorm_penalty*lj_norm + negative_penalty*negative_penalty
+    l1_norm = torch.sum(torch.abs(lambda_ij))
+    lj_norm = torch.sum(torch.abs(lambda_ij) ** j)
+    negative_penalty_value = -torch.sum(lambda_ij) + torch.sum(torch.abs(lambda_ij))
+    result = sparcity_penalty * tv + l1_norm_penalty * l1_norm + ljnorm_penalty * lj_norm + negative_penalty * negative_penalty_value
     return result
 
-def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,negative_penalty, ljnorm_penalty, j, eta, max_iter=1000, tol=1e-6, lr=0.01, device='cuda',initial_guess=None):
-    """Optimization loop using PyTorch."""
-    
+def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty, negative_penalty, ljnorm_penalty, j, eta, max_iter=1000, tol=1e-6, lr=0.01, device='cuda', initial_guess=None, verbose=False):
+    """
+    Optimization loop using PyTorch.
+
+    Args:
+        A (torch.Tensor): Matrix for the linear system.
+        C (torch.Tensor): Target vector.
+        sparcity_penalty (float): Penalty term for sparsity in the solution.
+        l1_norm_penalty (float): L1 norm penalty for regularization.
+        solution_penalty (float): Penalty for the solution norm.
+        negative_penalty (float): Penalty for negative peaks.
+        ljnorm_penalty (float): L_j norm penalty for regularization.
+        j (float): Exponent for the L_j norm.
+        eta (float): Regularization term for optimization.
+        max_iter (int, optional): Maximum number of iterations. Defaults to 1000.
+        tol (float, optional): Tolerance for convergence. Defaults to 1e-6.
+        lr (float, optional): Learning rate for the optimization algorithm. Defaults to 0.01.
+        device (str, optional): Device for computation ('cuda' or 'cpu'). Defaults to 'cuda'.
+        initial_guess (torch.Tensor, optional): Initial guess for the optimization. Defaults to None.
+        verbose (bool, optional): decide if infprmation should be printed
+
+    Returns:
+        torch.Tensor: Optimized solution tensor.
+    """
     num_k, num_i, num_j = A.shape
     A = A.reshape(num_k, num_i * num_j)
     # Initialize lambda_ij as a PyTorch tensor with gradients
@@ -130,52 +248,35 @@ def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,ne
     lambda_ij = A_transpose(C) if initial_guess is None else initial_guess #torch.zeros((num_i, num_j)
     lambda_ij=lambda_ij.reshape(num_i,num_j)
     lambda_ij.requires_grad=True
-    #else:
-    #    lambda_ij = initial_guess.to(device)
-    #    lambda_ij.requires_grad=True
-        
-    #rho_initial=torch.tensor(rho)
-    # Use an optimizer, e.g., Adam
-    #optimizer = torch.optim.Adam([lambda_ij], lr=lr)
-    optimizer = torch.optim.LBFGS([lambda_ij],lr=lr,line_search_fn="strong_wolfe") #
-    min_objective_value=torch.inf
+
+    optimizer = torch.optim.LBFGS([lambda_ij],lr=lr,line_search_fn="strong_wolfe")
+    
+    min_objective_value=torch.inf #initialize best objective
     
     return_lambda=lambda_ij
     for iter in range(max_iter):
         optimizer.zero_grad()  # Clear previous gradients
 
-        # Compute the objective function
-        obj_value = objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,negative_penalty,ljnorm_penalty, j)
-        obj_value_no_penalty =  objective_function_no_penalty(lambda_ij, A, C,sparcity_penalty, l1_norm_penalty,negative_penalty,ljnorm_penalty, j)
-        # Perform a backward pass to compute gradients
-        obj_value.backward()
+        
+       
+        obj_value = objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty, negative_penalty, ljnorm_penalty, j) # Compute the objective function
+        obj_value_no_penalty = objective_function_no_penalty(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, negative_penalty, ljnorm_penalty, j)  
+        obj_value.backward() # Perform a backward pass to compute gradients
+
         def closure():
-            optimizer.zero_grad()  # Clear previous gradients
-    
-            # Compute the objective function
-            obj_value = objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,negative_penalty,ljnorm_penalty, j)
-            obj_value.backward()  # Perform a backward pass to compute gradients
-            
+            optimizer.zero_grad()
+            obj_value = objective_function(lambda_ij, A, C, sparcity_penalty, l1_norm_penalty, solution_penalty, negative_penalty, ljnorm_penalty, j) # Compute the objective function
+            obj_value.backward() # Perform a backward pass to compute gradients
             return obj_value
-        # Gradient descent step
-        optimizer.step(closure)
-        #optimizer.step(closure)
+
+        optimizer.step(closure) # LBFGS step
 
         # Calculate the constraint violation
         with torch.no_grad():
             constraint_violation = torch.norm(A @ lambda_ij.flatten() - C).item()
 
-        # If the constraint is violated, increase the penalty, else decrease
-        #if constraint_violation > eta:  
-        #    if rho<rho_initial:
-        #        rho *= 1.001  # Increase the penalty parameter
-        #    else:
-        #        rho=rho_initial.item()
-        #else:
-        #    rho /= 1.001  # Decrease the penalty parameter
 
-        # Print or log the objective value and constraint violation
-        if iter%10==0:
+        if iter%10==0 and verbose:
             print(f"Iteration {iter}: Objective value = with pen {obj_value.item():.6f} without pen {obj_value_no_penalty.item():.6f}, Constraint violation = {constraint_violation> eta}, {constraint_violation:.6f}")
         if obj_value.item()<min_objective_value:
             min_objective_value=obj_value.item()
@@ -185,10 +286,12 @@ def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty,ne
             no_improvement_iters +=1
         # Convergence check
         if obj_value_no_penalty.item() < tol and constraint_violation < eta:
-            print("Converged")
+            if verbose: 
+                print("Converged")
             break
         if no_improvement_iters >20:
-            print("no improvement for 20 iters")
+            if verbose:
+                print("no improvement for 20 iters")
             break
 
     return return_lambda
@@ -252,7 +355,7 @@ def ensure_tensor_on_device(array, device='cuda',dtype=torch.float):
 
 def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_penalty=1, 
                                    solution_penalty=10000,negative_penalty=1,ljnorm_penalty=0 ,j=0.5, lr=0.01, max_iter=1000, eta=1e-7, 
-                                   tol=1e-7, device='cuda', cutoff=None, 
+                                   tol=1e-7, device='cuda', cutoff=None, frequencies=None,dampings=None,
                                    sample_frequencies=None, top_n=False,top_tresh=False, second_optimization=False,chunk_memory=1e9,auto_length_debias=None,auto_length_return=None):
     """
     Reconstruct the super-resolution spectral density from the autocorrelation function.
@@ -298,8 +401,10 @@ def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_pena
     t_axis = dt * torch.arange(0, N_cut, device=device)
     t_axis_full = dt * torch.arange(0, N, device=device)
     t_axis_very_orig = dt *torch.arange(0, len(auto_very_orig), device=device)
-    frequencies = torch.arange(0, 0.2, 0.00005, device=device) / units.hbar
-    dampings = torch.arange(1, 200, 0.5, device=device) * cm_to_eV / units.hbar
+    if frequencies==None:
+        frequencies = torch.arange(0, 0.2, 0.00005, device=device) / units.hbar
+    if dampings==None:
+        dampings = torch.arange(1, 200, 0.5, device=device) / units.hbar
 
     damping_term = torch.exp(-dampings[None, :] * t_axis[:, None])
     frequency_term = torch.cos(frequencies[None, :] * t_axis[:, None])

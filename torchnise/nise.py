@@ -67,34 +67,7 @@ def NISE_propagate(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_cor
         C=v_eps
         S=torch.matmul(C.transpose(1,2),Cold) #multiply the old with the new transition matrix to get the non-adiabatic coupling
         if T_correction.lower() in ["mlnise","tnise"]:
-            for ii in range(0,n_sites):
-                maxC=torch.max(S[:,:,ii].real**2,1) #The order of the eigenstates is not well defined and might be flipped from one transition matrix to the transition matrix
-                #to find the eigenstate that matches the previous eigenstate we find the eigenvectors that overlapp the most and we use the index with the highest overlap (kk)
-                #instead of the original index ii to index the non adiabatic coupling correctly
-                kk=maxC.indices
-                CD=torch.zeros(realizations,device=device)
-                for jj in range(0,n_sites):
-                    DE=E[:,jj]-Eold[:,ii]
-                    DE[jj==kk]=0 #if they are the same state the energy difference is 0
-                    if T_correction=="TNISE":
-                        correction=torch.exp(-DE/kBT/4)
-                    else:
-                        correction=MLNISE_Model(DE,kBT,phiB,S,jj,ii,realizations,device=device)
-                    S[:,jj,ii]=S[:,jj,ii].clone()*correction
-                    AddCD=S[:,jj,ii].clone()**2
-                    AddCD[jj==kk]=0
-                    CD=CD.clone()+AddCD
-                #The renormalization procedure broken into smaller steps, 
-                #because previously some errors showed
-                #should probably be simplified
-                norm=torch.abs(S[torch.arange(realizations),kk,ii].clone())
-                dummy1=torch.ones(realizations,device=device)
-                dummy1[1-CD>0]=torch.sqrt(1-CD[1-CD>0])
-                dummy2=torch.zeros(realizations,device=device)
-                S_clone=S[torch.arange(realizations),kk,ii].clone()
-                dummy2[1-CD>0]=S_clone.clone()[1-CD>0]/norm[1-CD>0]
-                dummy3=dummy1*dummy2
-                S[1-CD>0,kk[1-CD>0],ii]=dummy3[1-CD>0]
+            S=t_correction(S,n_sites,realizations,device,E,Eold,T_correction,kBT,MLNISE_Model,phiB)
         U=torch.diag_embed(torch.exp(-E[:,:]*factor)).bmm(S.to(dtype=torch.complex64))  #Make the Time Evolution operator
         phiB=U.bmm(phiB) #Apply the time evolution operator
         if saveU:
@@ -128,6 +101,36 @@ def NISE_propagate(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_cor
         ULOC = ULOC.cpu()
     return PSLOC.cpu(), CohLoc ,ULOC
 
+
+def t_correction(S,n_sites,realizations,device,E,Eold,T_correction,kBT,MLNISE_Model,phiB):
+    for ii in range(0,n_sites):
+        maxC=torch.max(S[:,:,ii].real**2,1) #The order of the eigenstates is not well defined and might be flipped from one transition matrix to the transition matrix
+        #to find the eigenstate that matches the previous eigenstate we find the eigenvectors that overlapp the most and we use the index with the highest overlap (kk)
+        #instead of the original index ii to index the non adiabatic coupling correctly
+        kk=maxC.indices
+        CD=torch.zeros(realizations,device=device)
+        for jj in range(0,n_sites):
+            DE=E[:,jj]-Eold[:,ii]
+            DE[jj==kk]=0 #if they are the same state the energy difference is 0
+            if T_correction=="TNISE":
+                correction=torch.exp(-DE/kBT/4)
+            else:
+                correction=MLNISE_Model(DE,kBT,phiB,S,jj,ii,realizations,device=device)
+            S[:,jj,ii]=S[:,jj,ii].clone()*correction
+            AddCD=S[:,jj,ii].clone()**2
+            AddCD[jj==kk]=0
+            CD=CD.clone()+AddCD
+        #The renormalization procedure broken into smaller steps, 
+        #because previously some errors showed
+        #should probably be simplified
+        norm=torch.abs(S[torch.arange(realizations),kk,ii].clone())
+        dummy1=torch.ones(realizations,device=device)
+        dummy1[1-CD>0]=torch.sqrt(1-CD[1-CD>0])
+        dummy2=torch.zeros(realizations,device=device)
+        S_clone=S[torch.arange(realizations),kk,ii].clone()
+        dummy2[1-CD>0]=S_clone.clone()[1-CD>0]/norm[1-CD>0]
+        dummy3=dummy1*dummy2
+        S[1-CD>0,kk[1-CD>0],ii]=dummy3[1-CD>0]
 
 def NISE_averaging(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_correction="None",averaging_method="standard",
          lifetime_factor=5,device="cpu", saveCoherence=False,saveU=False,MLNISE_inputs=None):
@@ -248,7 +251,8 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
     else:
         return avg_output, torch.linspace(0,total_time,avg_output.shape[0])
     
-    
+
+   
 class MLNISE_model(nn.Module):
     #init contains all the free parameters of our method. In case of the neural networks its the layers of the neural networks
     def __init__(self):

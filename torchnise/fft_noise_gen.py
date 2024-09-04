@@ -28,7 +28,24 @@ def inverse_sample(dist, shape, x_min=-100, x_max=100, n=1e5, **kwargs):
     f = interp1d(cumulative / cumulative.max(), x)
     return f(np.random.random(shape))
 
+
 def gen_noise(spectral_funcs,dt,shape):
+    """
+     Generates time-correlated noise following the power spectrums provided in spectral_funcs.
+     Supports multiple power spectrums.
+    
+     Parameters:
+     - shape (tuple): Shape of the output noise array. The first dimension is the number of realizations,
+                      the second dimension is the number of steps, and the remaining dimension is the number of sites.
+     - dt (float): Time step size.
+     - spectral_funcs (list(callable)): must have either len 1 if all sites follow the same power spectrum,
+                                        or len n_sites=shape[-1] to provide a separate power spectrum for each site
+                                        the callable defines the power spectrum of the noise.
+
+    
+     Returns:
+     - np.ndarray: Time-correlated noise with the specified shape.
+     """
     if len(shape)!=3:
         raise ValueError(f"gen_noise requres a shape tuple with (reals,steps,n_sites) but a tuple of size {len(shape)} was given")
     reals,steps,n_sites = shape
