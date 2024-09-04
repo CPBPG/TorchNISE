@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+
+<html lang="python" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>torchnise package &#8212; TorchNISE 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../_static/documentation_options.js?v=2d80085d"></script>
+    <script src="../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="torchnise-package">
+<h1>torchnise package<a class="headerlink" href="#torchnise-package" title="Link to this heading">¶</a></h1>
+<section id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Link to this heading">¶</a></h2>
+</section>
+<section id="module-torchnise.absorption">
+<span id="torchnise-absorption-module"></span><h2>torchnise.absorption module<a class="headerlink" href="#module-torchnise.absorption" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.absorption.absorb_time_to_freq">
+<span class="sig-prename descclassname"><span class="pre">torchnise.absorption.</span></span><span class="sig-name descname"><span class="pre">absorb_time_to_freq</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">absorb_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pad</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">smoothdamp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">smoothdamp_start_percent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.absorption.absorb_time_to_freq" title="Link to this definition">¶</a></dt>
+<dd><p>Convert time domain absorption to an absorption spectrum.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>absorb_time (numpy.ndarray): Time domain absorption.
+total_time (float): Total time duration of the absorption signal.
+dt (float): Time step size.
+pad (int, optional): Number of zero padding points for higher frequency resolution. Default is 0.
+smoothdamp (bool, optional): Whether to smooth the transition to the padded region with an exponential damping. Default is True.
+smoothdamp_start_percent (int, optional): Percentage of the time domain absorption affected by smoothing. Default is 10.</p>
+</dd>
+<dt>Returns:</dt><dd><dl class="simple">
+<dt>tuple: (numpy.ndarray, numpy.ndarray)</dt><dd><ul class="simple">
+<li><p>Absorption spectrum in the frequency domain.</p></li>
+<li><p>Corresponding frequency axis.</p></li>
+</ul>
+</dd>
+</dl>
+</dd>
+<dt>Notes:</dt><dd><p>This function performs a Fast Fourier Transform (FFT) on the time domain absorption data to obtain the absorption spectrum
+in the frequency domain. Optional smoothing can be applied to the transition to the padded region to reduce artifacts.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.absorption.absorption_time_domain">
+<span class="sig-prename descclassname"><span class="pre">torchnise.absorption.</span></span><span class="sig-name descname"><span class="pre">absorption_time_domain</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">U</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_damping</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lifetime</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.absorption.absorption_time_domain" title="Link to this definition">¶</a></dt>
+<dd><p>Calculate the time domain absorption based on the time evolution operator.</p>
+<dl>
+<dt>Args:</dt><dd><p>U (numpy.ndarray): Time evolution operator with dimensions (realizations, timesteps, n_sites, n_sites).
+mu (numpy.ndarray): Dipole moments with either shape (realizations, timesteps, n_sites, 3) for time-dependent cases,</p>
+<blockquote>
+<div><p>or shape (n_sites, 3) for time-independent cases.</p>
+</div></blockquote>
+<p>use_damping (bool, optional): Whether to apply exponential damping to account for the lifetime of the state. Default is False.
+lifetime (float, optional): lifetime for the damping. Default is 1000. Units are not important as long as dt and lifetime have</p>
+<blockquote>
+<div><p>the same unit.</p>
+</div></blockquote>
+<p>dt (float, optional): Time step size. Default is 1.</p>
+</dd>
+<dt>Returns:</dt><dd><p>numpy.ndarray: Time domain absorption.</p>
+</dd>
+<dt>Notes:</dt><dd><p>This function calculates the time domain absorption by summing over the contributions of different realizations,
+timesteps, and sites. An optional exponential damping factor can be applied to simulate the decay of the signal
+over time.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-torchnise.averaging_and_lifetimes">
+<span id="torchnise-averaging-and-lifetimes-module"></span><h2>torchnise.averaging_and_lifetimes module<a class="headerlink" href="#module-torchnise.averaging_and_lifetimes" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.averaging_and_lifetimes.averaging">
+<span class="sig-prename descclassname"><span class="pre">torchnise.averaging_and_lifetimes.</span></span><span class="sig-name descname"><span class="pre">averaging</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">population</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">averiging_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lifetimes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coherence</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.averaging_and_lifetimes.averaging" title="Link to this definition">¶</a></dt>
+<dd><p>Average populations using various methods.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>population (torch.Tensor): Population tensor.
+averiging_type (str): Type of averaging to perform. Options are &quot;standard&quot;, &quot;boltzmann&quot;, &quot;interpolated&quot;.
+lifetimes (torch.Tensor, optional): Lifetimes of the states, required for &quot;interpolated&quot; averaging.
+step (float, optional): Time step size, required for &quot;interpolated&quot; averaging.
+coherence (torch.Tensor, optional): Coherence matrix.
+weight (torch.Tensor, optional): Weights for averaging.</p>
+</dd>
+<dt>Returns:</dt><dd><p>tuple: (torch.Tensor, torch.Tensor) - Averaged population and coherence.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.averaging_and_lifetimes.blend_and_normalize_populations">
+<span class="sig-prename descclassname"><span class="pre">torchnise.averaging_and_lifetimes.</span></span><span class="sig-name descname"><span class="pre">blend_and_normalize_populations</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pop1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pop2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lifetimes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delta_t</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.averaging_and_lifetimes.blend_and_normalize_populations" title="Link to this definition">¶</a></dt>
+<dd><p>Blend and normalize populations based on lifetimes.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>pop1 (torch.Tensor): Initial population tensor.
+pop2 (torch.Tensor): Final population tensor to blend towards.
+lifetimes (torch.Tensor): Lifetimes of the states.
+delta_t (float): Time step size.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Normalized blended population tensor.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.averaging_and_lifetimes.estimate_lifetime">
+<span class="sig-prename descclassname"><span class="pre">torchnise.averaging_and_lifetimes.</span></span><span class="sig-name descname"><span class="pre">estimate_lifetime</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">U</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delta_t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'oscillatory_fit_mae'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.averaging_and_lifetimes.estimate_lifetime" title="Link to this definition">¶</a></dt>
+<dd><p>Estimate lifetimes of quantum states using various fitting methods.</p>
+<dl>
+<dt>Args:</dt><dd><p>U (torch.Tensor): Time evolution operator with dimensions (realizations, timesteps, n_sites, n_sites).
+delta_t (float): Time step size.
+method (str, optional): Method to use for lifetime estimation. Options are &quot;oscillatory_fit_mae&quot;,</p>
+<blockquote>
+<div><p>&quot;oscillatory_fit_mse&quot;, &quot;simple_fit&quot;, &quot;reverse_cummax&quot;, &quot;simple_fit_mae&quot;. 
+Default is &quot;oscillatory_fit_mae&quot;.</p>
+</div></blockquote>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Estimated lifetimes of each state.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.averaging_and_lifetimes.objective">
+<span class="sig-prename descclassname"><span class="pre">torchnise.averaging_and_lifetimes.</span></span><span class="sig-name descname"><span class="pre">objective</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tau</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delta_t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">population</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.averaging_and_lifetimes.objective" title="Link to this definition">¶</a></dt>
+<dd><p>Objective function using Mean Squared Error (MSE) for fitting decays.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>tau (float): Decay constant.
+i (int): Index of the state to estimate the lifetime.
+delta_t (float): Time step size.
+n (int): Number of states.
+time_array (torch.Tensor): Array of time steps.
+U (torch.Tensor): Time evolution operator with dimensions (realizations, timesteps, n_sites, n_sites).</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: Mean squared error (MSE) between the population and the fit.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.averaging_and_lifetimes.objective_mae">
+<span class="sig-prename descclassname"><span class="pre">torchnise.averaging_and_lifetimes.</span></span><span class="sig-name descname"><span class="pre">objective_mae</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tau</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delta_t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">population</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.averaging_and_lifetimes.objective_mae" title="Link to this definition">¶</a></dt>
+<dd><p>Objective function using Mean Absolute Error (MAE) for fitting decays.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>tau (float): Decay constant.
+i (int): Index of the state to estimate the lifetime.
+delta_t (float): Time step size.
+n (int): Number of states.
+time_array (torch.Tensor): Array of time steps.
+U (torch.Tensor): Time evolution operator with dimensions (realizations, timesteps, n_sites, n_sites).</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: Mean absolute error (MAE) between the population and the fit.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.averaging_and_lifetimes.objective_oscil_mae">
+<span class="sig-prename descclassname"><span class="pre">torchnise.averaging_and_lifetimes.</span></span><span class="sig-name descname"><span class="pre">objective_oscil_mae</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tau_oscscale_oscstrength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delta_t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">population</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.averaging_and_lifetimes.objective_oscil_mae" title="Link to this definition">¶</a></dt>
+<dd><p>Objective function using Mean Absolute Error (MAE) for fitting oscillatory decays.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>tau_oscscale_oscstrength (tuple): Tuple containing tau, osc_scale, and osc_strength parameters.
+i (int): Index of the state to estimate the lifetime.
+delta_t (float): Time step size.
+n (int): Number of states.
+time_array (torch.Tensor): Array of time steps.
+U (torch.Tensor): Time evolution operator with dimensions (realizations, timesteps, n_sites, n_sites).</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: Mean squared error (MSE) between the population and the fit.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.averaging_and_lifetimes.objective_oscil_mse">
+<span class="sig-prename descclassname"><span class="pre">torchnise.averaging_and_lifetimes.</span></span><span class="sig-name descname"><span class="pre">objective_oscil_mse</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tau_oscscale_oscstrength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delta_t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">population</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.averaging_and_lifetimes.objective_oscil_mse" title="Link to this definition">¶</a></dt>
+<dd><p>Objective function using Mean Squared Error (MAE) for fitting oscillatory decays.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>tau_oscscale_oscstrength (tuple): Tuple containing tau, osc_scale, and osc_strength parameters.
+i (int): Index of the state to estimate the lifetime.
+delta_t (float): Time step size.
+n (int): Number of states.
+time_array (torch.Tensor): Array of time steps.
+U (torch.Tensor): Time evolution operator with dimensions (realizations, timesteps, n_sites, n_sites).</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: Mean squared error (MSE) between the population and the fit.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.averaging_and_lifetimes.objective_reverse_cummax">
+<span class="sig-prename descclassname"><span class="pre">torchnise.averaging_and_lifetimes.</span></span><span class="sig-name descname"><span class="pre">objective_reverse_cummax</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tau</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delta_t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">population</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.averaging_and_lifetimes.objective_reverse_cummax" title="Link to this definition">¶</a></dt>
+<dd><p>Objective function using reverse cumulative maximum for fitting decays.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>tau (float): Decay constant.
+i (int): Index of the state to estimate the lifetime.
+delta_t (float): Time step size.
+n (int): Number of states.
+time_array (torch.Tensor): Array of time steps.
+U (torch.Tensor): Time evolution operator with dimensions (realizations, timesteps, n_sites, n_sites).</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: Weighted mean squared error (MSE) between the population and the fit.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.averaging_and_lifetimes.reshape_weights">
+<span class="sig-prename descclassname"><span class="pre">torchnise.averaging_and_lifetimes.</span></span><span class="sig-name descname"><span class="pre">reshape_weights</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">weight</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">population</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coherence</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.averaging_and_lifetimes.reshape_weights" title="Link to this definition">¶</a></dt>
+<dd><p>Reshape weights for averaging.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>weight (torch.Tensor): Weight tensor.
+population (torch.Tensor): Population tensor.
+coherence (torch.Tensor, optional): Coherence matrix.</p>
+</dd>
+<dt>Returns:</dt><dd><p>tuple: (torch.Tensor, torch.Tensor) - Reshaped weights for population and coherence.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-torchnise.example_spectral_functions">
+<span id="torchnise-example-spectral-functions-module"></span><h2>torchnise.example_spectral_functions module<a class="headerlink" href="#module-torchnise.example_spectral_functions" title="Link to this heading">¶</a></h2>
+<p>This file implements various Spectral functions returning the power spectrum.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.example_spectral_functions.spectral_Drude">
+<span class="sig-prename descclassname"><span class="pre">torchnise.example_spectral_functions.</span></span><span class="sig-name descname"><span class="pre">spectral_Drude</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">w</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">strength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.example_spectral_functions.spectral_Drude" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.example_spectral_functions.spectral_Drude_Lorentz">
+<span class="sig-prename descclassname"><span class="pre">torchnise.example_spectral_functions.</span></span><span class="sig-name descname"><span class="pre">spectral_Drude_Lorentz</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">w</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">strength</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Wk</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Sk</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Gammak</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.example_spectral_functions.spectral_Drude_Lorentz" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.example_spectral_functions.spectral_Drude_Lorentz_Heom">
+<span class="sig-prename descclassname"><span class="pre">torchnise.example_spectral_functions.</span></span><span class="sig-name descname"><span class="pre">spectral_Drude_Lorentz_Heom</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">w</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Omega_k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_k</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.example_spectral_functions.spectral_Drude_Lorentz_Heom" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.example_spectral_functions.spectral_Log_Normal">
+<span class="sig-prename descclassname"><span class="pre">torchnise.example_spectral_functions.</span></span><span class="sig-name descname"><span class="pre">spectral_Log_Normal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">w</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">S_HR</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w_c</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.example_spectral_functions.spectral_Log_Normal" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.example_spectral_functions.spectral_Log_Normal_Lorentz">
+<span class="sig-prename descclassname"><span class="pre">torchnise.example_spectral_functions.</span></span><span class="sig-name descname"><span class="pre">spectral_Log_Normal_Lorentz</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">w</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Wk</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Sk</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Gammak</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">S_HR</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">w_c</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.example_spectral_functions.spectral_Log_Normal_Lorentz" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.example_spectral_functions.spectral_Lorentz">
+<span class="sig-prename descclassname"><span class="pre">torchnise.example_spectral_functions.</span></span><span class="sig-name descname"><span class="pre">spectral_Lorentz</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">w</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Wk</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Sk</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Gammak</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.example_spectral_functions.spectral_Lorentz" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</section>
+<section id="module-torchnise.fft_noise_gen">
+<span id="torchnise-fft-noise-gen-module"></span><h2>torchnise.fft_noise_gen module<a class="headerlink" href="#module-torchnise.fft_noise_gen" title="Link to this heading">¶</a></h2>
+<p>This file implements the fftNoiseGEN algorithm for time correlated Noise.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.fft_noise_gen.gen_noise">
+<span class="sig-prename descclassname"><span class="pre">torchnise.fft_noise_gen.</span></span><span class="sig-name descname"><span class="pre">gen_noise</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">spectral_funcs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shape</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.fft_noise_gen.gen_noise" title="Link to this definition">¶</a></dt>
+<dd><p>Generates time-correlated noise following the power spectrums provided in spectral_funcs.
+Supports multiple power spectrums.</p>
+<p>Parameters:
+- shape (tuple): Shape of the output noise array. The first dimension is the number of realizations,</p>
+<blockquote>
+<div><p>the second dimension is the number of steps, and the remaining dimension is the number of sites.</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>dt (float): Time step size.</p></li>
+<li><dl class="simple">
+<dt>spectral_funcs (list(callable)): must have either len 1 if all sites follow the same power spectrum,</dt><dd><p>or len n_sites=shape[-1] to provide a separate power spectrum for each site
+the callable defines the power spectrum of the noise.</p>
+</dd>
+</dl>
+</li>
+</ul>
+<p>Returns:
+- np.ndarray: Time-correlated noise with the specified shape.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.fft_noise_gen.inverse_sample">
+<span class="sig-prename descclassname"><span class="pre">torchnise.fft_noise_gen.</span></span><span class="sig-name descname"><span class="pre">inverse_sample</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dist</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shape</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100000.0</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.fft_noise_gen.inverse_sample" title="Link to this definition">¶</a></dt>
+<dd><p>Generates samples from a given distribution using the inverse transform sampling method.</p>
+<p>Parameters:
+- dist (callable): Probability density function (PDF) of the desired distribution.
+- pnts (int): Number of points/samples to generate.
+- x_min (float): Minimum x value for the range of the distribution.
+- x_max (float): Maximum x value for the range of the distribution.
+- n (int): Number of points used to approximate the cumulative distribution function (CDF).
+- <a href="#id1"><span class="problematic" id="id2">**</span></a>kwargs: Additional arguments to pass to the PDF function.</p>
+<p>Returns:
+- np.ndarray: Samples drawn from the specified distribution.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.fft_noise_gen.noise_algorithm">
+<span class="sig-prename descclassname"><span class="pre">torchnise.fft_noise_gen.</span></span><span class="sig-name descname"><span class="pre">noise_algorithm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">shape</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectral_func</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sample_dist</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">discard_half</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.fft_noise_gen.noise_algorithm" title="Link to this definition">¶</a></dt>
+<dd><p>Generates time-correlated noise following the power spectrum provided in spectral_func.</p>
+<p>Parameters:
+- shape (tuple): Shape of the output noise array. The first dimension is the number of realizations,</p>
+<blockquote>
+<div><p>the second dimension is the number of steps, and the remaining dimensions can be arbitrary
+for example, number of sites.</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>dt (float): Time step size.</p></li>
+<li><p>spectral_func (callable): Function that defines the power spectrum of the noise.</p></li>
+<li><p>axis (int, optional): The axis along which the noise should be correlated. Default is -1 (last axis).</p></li>
+<li><dl class="simple">
+<dt>sample_dist (callable, optional): A function that generates an array of random numbers. Can be used</dt><dd><p>if a non-normal distribution in the time domain is desired.</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>discard_half (bool, optional): If True, generates noise for twice the number of steps and discards the second half</dt><dd><p>to avoid circular correlation. Default is True.</p>
+</dd>
+</dl>
+</li>
+<li><p>save (bool, optional): If True, the generated noise array will be saved to a file.</p></li>
+<li><p>save_name (str, optional): The name of the file to save the noise array. Required if save is True.</p></li>
+</ul>
+<p>Returns:
+- np.ndarray: Time-correlated noise with the specified shape.</p>
+</dd></dl>
+
+</section>
+<section id="module-torchnise.nise">
+<span id="torchnise-nise-module"></span><h2>torchnise.nise module<a class="headerlink" href="#module-torchnise.nise" title="Link to this heading">¶</a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="torchnise.nise.MLNISE_model">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchnise.nise.</span></span><span class="sig-name descname"><span class="pre">MLNISE_model</span></span><a class="headerlink" href="#torchnise.nise.MLNISE_model" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></p>
+<p>Predict correction factors for non-adiabatic coupling based on input features.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>MLNISE_inputs (tuple): Inputs for MLNISE model.
+DE (torch.Tensor): Energy differences between states.
+kBT (float): Thermal energy (k_B * T).
+phiB (torch.Tensor): Wavefunction in the eigenbasis.
+S (torch.Tensor): Non-adiabatic coupling matrix.
+jj (int): Index of the target state.
+ii (int): Index of the current state.
+realizations (int): Number of noise realizations.
+device (str, optional): Device for computation (&quot;cpu&quot; or &quot;cuda&quot;). Defaults to &quot;cpu&quot;.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Correction factor for the non-adiabatic coupling matrix.</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="torchnise.nise.MLNISE_model.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">MLNISE_inputs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DE</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kBT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiB</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">S</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">jj</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ii</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">realizations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cpu'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.nise.MLNISE_model.forward" title="Link to this definition">¶</a></dt>
+<dd><p>Define the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.nise.NISE_averaging">
+<span class="sig-prename descclassname"><span class="pre">torchnise.nise.</span></span><span class="sig-name descname"><span class="pre">NISE_averaging</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Hfull</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">realizations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_Interval</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_correction</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'None'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">averaging_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'standard'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lifetime_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cpu'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saveCoherence</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saveU</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MLNISE_inputs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.nise.NISE_averaging" title="Link to this definition">¶</a></dt>
+<dd><p>Run NISE propagation with different averaging methods to calculate averaged population dynamics.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>Hfull (torch.Tensor): Hamiltonian of the system over time for different realizations.
+realizations (int): Number of noise realizations to simulate.
+psi0 (torch.Tensor): Initial state of the system.
+total_time (float): Total time for the simulation.
+dt (float): Time step size.
+T (float): Temperature for thermal corrections.
+save_Interval (int, optional): Interval for saving results. Defaults to 1.
+T_correction (str, optional): Method for thermal correction (&quot;None&quot;, &quot;TNISE&quot;, &quot;MLNISE&quot;). Defaults to &quot;None&quot;.
+averaging_method (str, optional): Method for averaging results (&quot;standard&quot;, &quot;boltzmann&quot;, &quot;interpolated&quot;). Defaults to &quot;standard&quot;.
+lifetime_factor (int, optional): Factor to scale estimated lifetimes. Defaults to 5.
+device (str, optional): Device for computation (&quot;cpu&quot; or &quot;cuda&quot;). Defaults to &quot;cpu&quot;.
+saveCoherence (bool, optional): If True, save coherences. Defaults to False.
+saveU (bool, optional): If True, save time evolution operators. Defaults to False.
+MLNISE_inputs (tuple, optional): Inputs for MLNISE model. Defaults to None.</p>
+</dd>
+<dt>Returns:</dt><dd><p>tuple: (torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor) - Averaged populations, coherences, time evolution operators, and lifetimes.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.nise.NISE_propagate">
+<span class="sig-prename descclassname"><span class="pre">torchnise.nise.</span></span><span class="sig-name descname"><span class="pre">NISE_propagate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Hfull</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">realizations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_Interval</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_correction</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'None'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cpu'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saveU</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saveCoherence</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MLNISE_inputs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MLNISE_Model</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.nise.NISE_propagate" title="Link to this definition">¶</a></dt>
+<dd><p>Propagate the quantum state using the NISE algorithm with optional thermal corrections.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>Hfull (torch.Tensor): Hamiltonian of the system over time for different realizations.
+realizations (int): Number of noise realizations to simulate.
+psi0 (torch.Tensor): Initial state of the system.
+total_time (float): Total time for the simulation.
+dt (float): Time step size.
+T (float): Temperature for thermal corrections.
+save_Interval (int, optional): Interval for saving results. Defaults to 1.
+T_correction (str, optional): Method for thermal correction (&quot;None&quot;, &quot;TNISE&quot;, &quot;MLNISE&quot;). Defaults to &quot;None&quot;.
+device (str, optional): Device for computation (&quot;cpu&quot; or &quot;cuda&quot;). Defaults to &quot;cpu&quot;.
+saveU (bool, optional): If True, save time evolution operators. Defaults to False.
+saveCoherence (bool, optional): If True, save coherences. Defaults to False.
+MLNISE_inputs (tuple, optional): Inputs for MLNISE model. Defaults to None.
+MLNISE_Model (nn.Module, optional): Machine learning model for MLNISE corrections. Defaults to None.</p>
+</dd>
+<dt>Returns:</dt><dd><p>tuple: (torch.Tensor, torch.Tensor, torch.Tensor) - Populations, coherences, and time evolution operators.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.nise.run_NISE">
+<span class="sig-prename descclassname"><span class="pre">torchnise.nise.</span></span><span class="sig-name descname"><span class="pre">run_NISE</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">H</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">realizations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_time</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initialState</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spectral_funcs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_Interval</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_correction</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'None'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'Population'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">aborption_padding</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">averaging_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'Standard'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lifetime_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">maxreps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MLNISE_inputs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cpu'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.nise.run_NISE" title="Link to this definition">¶</a></dt>
+<dd><p>Main function to run NISE simulations for population dynamics or absorption spectra.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>H (torch.Tensor): Hamiltonian of the system over time or single Hamiltonian with noise.
+realizations (int): Number of noise realizations to simulate.
+total_time (float): Total time for the simulation.
+dt (float): Time step size.
+initialState (torch.Tensor): Initial state of the system.
+T (float): Temperature for thermal corrections.
+spectral_funcs (callable): Spectral density functions for noise generation.
+save_Interval (int, optional): Interval for saving results. Defaults to 1.
+T_correction (str, optional): Method for thermal correction (&quot;None&quot;, &quot;TNISE&quot;, &quot;MLNISE&quot;). Defaults to &quot;None&quot;.
+mode (str, optional): Simulation mode (&quot;Population&quot; or &quot;Absorption&quot;). Defaults to &quot;Population&quot;.
+mu (torch.Tensor, optional): Dipole moments for absorption calculations. Defaults to None.
+aborption_padding (int, optional): Padding for absorption spectra calculation. Defaults to 10000.
+averaging_method (str, optional): Method for averaging results (&quot;Standard&quot;, &quot;Boltzmann&quot;, &quot;Interpolated&quot;). Defaults to &quot;Standard&quot;.
+lifetime_factor (int, optional): Factor to scale estimated lifetimes. Defaults to 5.
+maxreps (int, optional): Maximum number of realizations per chunk. Defaults to 100000.
+MLNISE_inputs (tuple, optional): Inputs for MLNISE model. Defaults to None.
+device (str, optional): Device for computation (&quot;cpu&quot; or &quot;cuda&quot;). Defaults to &quot;cpu&quot;.</p>
+</dd>
+<dt>Returns:</dt><dd><dl class="simple">
+<dt>tuple: Depending on mode, returns either (np.ndarray, np.ndarray) for absorption spectrum and frequency axis,</dt><dd><p>or (torch.Tensor, torch.Tensor) for averaged populations and time axis.</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.nise.t_correction">
+<span class="sig-prename descclassname"><span class="pre">torchnise.nise.</span></span><span class="sig-name descname"><span class="pre">t_correction</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">S</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_sites</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">realizations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">E</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Eold</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_correction</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kBT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">MLNISE_Model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiB</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.nise.t_correction" title="Link to this definition">¶</a></dt>
+<dd><p>Apply thermal corrections to the non-adiabatic coupling matrix.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>S (torch.Tensor): Non-adiabatic coupling matrix.
+n_sites (int): Number of sites in the system.
+realizations (int): Number of noise realizations.
+device (str): Device for computation (&quot;cpu&quot; or &quot;cuda&quot;).
+E (torch.Tensor): Eigenvalues of the Hamiltonian at the current time step.
+Eold (torch.Tensor): Eigenvalues of the Hamiltonian at the previous time step.
+T_correction (str): Method for thermal correction (&quot;TNISE&quot;, &quot;MLNISE&quot;).
+kBT (float): Thermal energy (k_B * T).
+MLNISE_Model (nn.Module): Machine learning model for MLNISE corrections.
+phiB (torch.Tensor): Wavefunction in the eigenbasis.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Corrected non-adiabatic coupling matrix.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-torchnise.pytorch_utility">
+<span id="torchnise-pytorch-utility-module"></span><h2>torchnise.pytorch_utility module<a class="headerlink" href="#module-torchnise.pytorch_utility" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.pytorch_utility.batch_trace">
+<span class="sig-prename descclassname"><span class="pre">torchnise.pytorch_utility.</span></span><span class="sig-name descname"><span class="pre">batch_trace</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">A</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">-2</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torchnise.pytorch_utility.batch_trace" title="Link to this definition">¶</a></dt>
+<dd><p>Compute the batch trace of a tensor along specified dimensions.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>A (torch.Tensor): Input tensor.
+dim1 (int): First dimension to compute trace along.
+dim2 (int): Second dimension to compute trace along.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Trace of the input tensor along the specified dimensions.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.pytorch_utility.clean_temp_files">
+<span class="sig-prename descclassname"><span class="pre">torchnise.pytorch_utility.</span></span><span class="sig-name descname"><span class="pre">clean_temp_files</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.pytorch_utility.clean_temp_files" title="Link to this definition">¶</a></dt>
+<dd><p>Remove all temporary .bin files.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.pytorch_utility.create_empty_mmap_tensor">
+<span class="sig-prename descclassname"><span class="pre">torchnise.pytorch_utility.</span></span><span class="sig-name descname"><span class="pre">create_empty_mmap_tensor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">shape</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">torch.float32</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torchnise.pytorch_utility.create_empty_mmap_tensor" title="Link to this definition">¶</a></dt>
+<dd><p>A custom function to create memory-mapped tensors.</p>
+<p>This function handles the creation of memory-mapped tensors, ensuring that the
+data is efficiently managed and temporary files are cleaned up properly.
+The mmaped tensors are always on cpu.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>tensor (torch.Tensor): Input tensor.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Memory-mapped tensor.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.pytorch_utility.delete_file">
+<span class="sig-prename descclassname"><span class="pre">torchnise.pytorch_utility.</span></span><span class="sig-name descname"><span class="pre">delete_file</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filename</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#torchnise.pytorch_utility.delete_file" title="Link to this definition">¶</a></dt>
+<dd><p>Delete the temporary file.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>filename (str): Path to the file to be deleted.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.pytorch_utility.golden_section_search">
+<span class="sig-prename descclassname"><span class="pre">torchnise.pytorch_utility.</span></span><span class="sig-name descname"><span class="pre">golden_section_search</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">func</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.pytorch_utility.golden_section_search" title="Link to this definition">¶</a></dt>
+<dd><p>Perform a golden section search to find the minimum of a unimodal function
+on a closed interval [a, b].</p>
+<dl>
+<dt>Args:</dt><dd><p>func (callable): The unimodal function to minimize.
+a (float): The lower bound of the search interval.
+b (float): The upper bound of the search interval.
+tol (float): The tolerance for stopping the search. The search stops when</p>
+<blockquote>
+<div><p>the interval length is less than this value.</p>
+</div></blockquote>
+</dd>
+<dt>Returns:</dt><dd><p>float: The point at which the function has its minimum within the interval [a, b].</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.pytorch_utility.is_memory_mapped">
+<span class="sig-prename descclassname"><span class="pre">torchnise.pytorch_utility.</span></span><span class="sig-name descname"><span class="pre">is_memory_mapped</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tensor</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">bool</span></span></span><a class="headerlink" href="#torchnise.pytorch_utility.is_memory_mapped" title="Link to this definition">¶</a></dt>
+<dd><p>Check if a given PyTorch tensor is memory-mapped from a file.</p>
+<p>A memory-mapped tensor is created by mapping a file into the tensor's storage.
+This function inspects the storage of the given tensor to determine if it
+was created from a memory-mapped file.</p>
+<p>Parameters:
+tensor (torch.Tensor): The PyTorch tensor to check.</p>
+<p>Returns:
+bool: True if the tensor is memory-mapped, False otherwise.</p>
+<p>Raises:
+Warning: If the tensor's storage does not have a filename attribute, (usually</p>
+<blockquote>
+<div><p>because pytorch version is less than 2.2) it can not be determined 
+if the tensor is memory mapped. It is assumed that it is not.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.pytorch_utility.matrix_logh">
+<span class="sig-prename descclassname"><span class="pre">torchnise.pytorch_utility.</span></span><span class="sig-name descname"><span class="pre">matrix_logh</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">A</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">-2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epsilon</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1e-05</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torchnise.pytorch_utility.matrix_logh" title="Link to this definition">¶</a></dt>
+<dd><p>Compute the Hermitian matrix logarithm of a square matrix or a batch of square matrices.
+It is the unique hermitian matrix logarithm see
+<a class="reference external" href="https://math.stackexchange.com/questions/4474139/logarithm-of-a-positive-definite-matrix">https://math.stackexchange.com/questions/4474139/logarithm-of-a-positive-definite-matrix</a></p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>A (torch.Tensor): Input tensor with square matrices in the last two dimensions.
+dim1 (int): First dimension of the square matrices. Default is -1.
+dim2 (int): Second dimension of the square matrices. Default is -2.
+epsilon (float): Small value to add to the diagonal to avoid numerical issues.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Matrix logarithm of the input tensor.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.pytorch_utility.renorm">
+<span class="sig-prename descclassname"><span class="pre">torchnise.pytorch_utility.</span></span><span class="sig-name descname"><span class="pre">renorm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">phi</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1e-08</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">-1</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torchnise.pytorch_utility.renorm" title="Link to this definition">¶</a></dt>
+<dd><p>Renormalize a batch of wavefunctions.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>phi (torch.Tensor): Batch of wavefunctions to be renormalized.
+eps (float): Small threshold to avoid division by zero.
+dim (int): Dimension along which the wavefunctions are stored. Default is -1.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Renormalized wavefunctions.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.pytorch_utility.smooth_damp_to_zero">
+<span class="sig-prename descclassname"><span class="pre">torchnise.pytorch_utility.</span></span><span class="sig-name descname"><span class="pre">smooth_damp_to_zero</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">f_init</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.pytorch_utility.smooth_damp_to_zero" title="Link to this definition">¶</a></dt>
+<dd><p>Smoothly damp a segment of an array to zero using an exponential damping function.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>f_init (numpy.ndarray): Initial array to be damped.
+start (int): Starting index of the segment to damp.
+end (int): Ending index of the segment to damp.</p>
+</dd>
+<dt>Returns:</dt><dd><p>numpy.ndarray: Array after applying the damping.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.pytorch_utility.tensor_to_mmap">
+<span class="sig-prename descclassname"><span class="pre">torchnise.pytorch_utility.</span></span><span class="sig-name descname"><span class="pre">tensor_to_mmap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tensor</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Tensor</span></span></span><a class="headerlink" href="#torchnise.pytorch_utility.tensor_to_mmap" title="Link to this definition">¶</a></dt>
+<dd><p>A custom function to create memory-mapped tensors.</p>
+<p>This function handles the creation of memory-mapped tensors, ensuring that the
+data is efficiently managed and temporary files are cleaned up properly.
+The mmaped tensors are always on cpu.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>tensor (torch.Tensor): Input tensor.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Memory-mapped tensor.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-torchnise.sd_from_noise">
+<span id="torchnise-sd-from-noise-module"></span><h2>torchnise.sd_from_noise module<a class="headerlink" href="#module-torchnise.sd_from_noise" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.Ccalc">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">Ccalc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">noise</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reals</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.Ccalc" title="Link to this definition">¶</a></dt>
+<dd><p>Calculate the autocorrelation matrix for the entire noise dataset.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>noise (np.ndarray): The input noise matrix.
+N (int): The total number of timesteps.
+reals (int): The number of realizations.</p>
+</dd>
+<dt>Returns:</dt><dd><p>np.ndarray: The autocorrelation matrix with size (reals, N).</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.SD_Reconstruct_FFT">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">SD_Reconstruct_FFT</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">auto</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">minW</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">maxW</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">damping_type</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cutoff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rescale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.SD_Reconstruct_FFT" title="Link to this definition">¶</a></dt>
+<dd><p>Reconstruct the spectral density using FFT from the autocorrelation function.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>auto (np.ndarray): Autocorrelation function.
+dt (float): Time step between autocorrelation points.
+T (float): Temperature.
+minW (float, optional): Minimum frequency to consider. Defaults to None.
+maxW (float, optional): Maximum frequency to consider. Defaults to None.
+damping_type (str, optional): Type of damping to apply ('step', 'gauss', 'exp'). Defaults to None.
+cutoff (float, optional): Cutoff for damping. Defaults to None.
+rescale (bool, optional): If True, rescale the autocorrelation function. Defaults to False.</p>
+</dd>
+<dt>Returns:</dt><dd><p>tuple: (np.ndarray, np.ndarray, np.ndarray) - Reconstructed spectral density, frequency axis, and damped autocorrelation.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.adjust_tensor_length">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">adjust_tensor_length</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">l</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.adjust_tensor_length" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.autocorrelation">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">autocorrelation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">noise</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">i</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.autocorrelation" title="Link to this definition">¶</a></dt>
+<dd><p>Calculate the autocorrelation function for a given noise matrix.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>noise (np.ndarray): The input noise matrix.
+i (int): The current index for autocorrelation calculation.
+N (int): The total number of timesteps.</p>
+</dd>
+<dt>Returns:</dt><dd><p>np.ndarray: The autocorrelation value for the given index i.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.ensure_tensor_on_device">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">ensure_tensor_on_device</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cuda'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">torch.float32</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.ensure_tensor_on_device" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.expval_auto">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">expval_auto</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">noise</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reals</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.expval_auto" title="Link to this definition">¶</a></dt>
+<dd><p>Calculate the expectation value of the autocorrelation function.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>noise (np.ndarray): The input noise matrix.
+N (int): The total number of timesteps.
+reals (int): The number of realizations.</p>
+</dd>
+<dt>Returns:</dt><dd><p>np.ndarray: The expectation value of the autocorrelation function.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.get_auto">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">get_auto</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">noise</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.get_auto" title="Link to this definition">¶</a></dt>
+<dd><p>Get the autocorrelation function for a given noise dataset.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>noise (np.ndarray): The input noise matrix.</p>
+</dd>
+<dt>Returns:</dt><dd><p>np.ndarray: The autocorrelation function.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.nnls_pyytorch_scipy">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">nnls_pyytorch_scipy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">A</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.nnls_pyytorch_scipy" title="Link to this definition">¶</a></dt>
+<dd><p>Solve the non-negative least squares problem for PyTorch Tensors using scipy.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>A (torch.Tensor): The input matrix A.
+b (torch.Tensor): The input vector b.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Solution vector x_nnls as a PyTorch tensor.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.objective_function">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">objective_function</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lambda_ij</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">A</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">C</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparcity_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">l1_norm_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">solution_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">negative_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ljnorm_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">j</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.objective_function" title="Link to this definition">¶</a></dt>
+<dd><p>Objective function with TV norm, L1 norm, and penalties for constraints. Used for Superresolution</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>lambda_ij (torch.Tensor): Current solution tensor.
+A (torch.Tensor): Matrix for the linear system.
+C (torch.Tensor): Target vector.
+sparcity_penalty (float): Penalty term for sparsity in the solution.
+l1_norm_penalty (float): L1 norm penalty for regularization.
+solution_penalty (float): Penalty for the solution norm.
+negative_penalty (float): Penalty for negative peaks.
+ljnorm_penalty (float): L_j norm penalty for regularization.
+j (float): Exponent for the L_j norm.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Value of the objective function.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.objective_function_no_penalty">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">objective_function_no_penalty</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lambda_ij</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">A</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">C</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparcity_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">l1_norm_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">negative_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ljnorm_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">j</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.objective_function_no_penalty" title="Link to this definition">¶</a></dt>
+<dd><p>Objective function without the solution penalty.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>lambda_ij (torch.Tensor): Current solution tensor.
+A (torch.Tensor): Matrix for the linear system.
+C (torch.Tensor): Target vector.
+sparcity_penalty (float): Penalty term for sparsity in the solution.
+l1_norm_penalty (float): L1 norm penalty for regularization.
+negative_penalty (float): Penalty for negative peaks.
+ljnorm_penalty (float): L_j norm penalty for regularization.
+j (float): Exponent for the L_j norm.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Value of the objective function without the solution penalty.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.optimize_lambda">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">optimize_lambda</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">A</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">C</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparcity_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">l1_norm_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">solution_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">negative_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ljnorm_penalty</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">j</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-06</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cuda'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_guess</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.optimize_lambda" title="Link to this definition">¶</a></dt>
+<dd><p>Optimization loop using PyTorch.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>A (torch.Tensor): Matrix for the linear system.
+C (torch.Tensor): Target vector.
+sparcity_penalty (float): Penalty term for sparsity in the solution.
+l1_norm_penalty (float): L1 norm penalty for regularization.
+solution_penalty (float): Penalty for the solution norm.
+negative_penalty (float): Penalty for negative peaks.
+ljnorm_penalty (float): L_j norm penalty for regularization.
+j (float): Exponent for the L_j norm.
+eta (float): Regularization term for optimization.
+max_iter (int, optional): Maximum number of iterations. Defaults to 1000.
+tol (float, optional): Tolerance for convergence. Defaults to 1e-6.
+lr (float, optional): Learning rate for the optimization algorithm. Defaults to 0.01.
+device (str, optional): Device for computation ('cuda' or 'cpu'). Defaults to 'cuda'.
+initial_guess (torch.Tensor, optional): Initial guess for the optimization. Defaults to None.
+verbose (bool, optional): decide if infprmation should be printed</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Optimized solution tensor.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.optimize_lambda_nnls">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">optimize_lambda_nnls</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">A</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_guess</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.01</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.optimize_lambda_nnls" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.sd_reconstruct_superresolution">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">sd_reconstruct_superresolution</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">auto</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparcity_penalty</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">l1_norm_penalty</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">solution_penalty</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">negative_penalty</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ljnorm_penalty</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">j</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-07</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-07</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cuda'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cutoff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">frequencies</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dampings</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sample_frequencies</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">top_n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">top_tresh</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">second_optimization</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_memory</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000000000.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_length_debias</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_length_return</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.sd_reconstruct_superresolution" title="Link to this definition">¶</a></dt>
+<dd><p>Reconstruct the super-resolution spectral density from the autocorrelation function.</p>
+<dl class="simple">
+<dt>Parameters:</dt><dd><p>auto (torch.Tensor): Autocorrelation function.
+dt (float): Time step between autocorrelation points.
+T (float): Temperature.
+sparcity_penalty (float): Penalty term for sparsity in the solution.
+l1_norm_penalty (float): L1 norm penalty for regularization.
+solution_penalty (float): Penalty for the solution norm.
+negative_penalty (float): Penalty for negative peaks.
+ljnorm_penalty (float): L_j norm penalty for regularization.
+j (float): j determining the L_j norm.
+lr (float): Learning rate for the optimization algorithm.
+max_iter (int): Maximum number of iterations for the optimization.
+eta (float): Regularization term for optimization.
+tol (float): Tolerance for convergence in the optimization.
+device (str): Device for computation ('cuda' or 'cpu').
+cutoff (float, optional): Cutoff for damping. Defaults to None.
+sample_frequencies (torch.Tensor, optional): Frequencies for sampling the spectral density. Defaults to None.
+top_n (int): If not False, only the top n coefficients are used. Defaults to False.
+top_tresh (float): Alternative to top_n chooses all coefficients above a treshold
+second_optimization (bool): If True, a second optimization step is performed using top n coefficients. Defaults to False.
+chunk_memory (float): The maximum amount of memory (in bytes) to use for each chunk. Defaults to 1GB.
+auto_length_debias (float): if not False: length of autocorrelation in fs for second optimizazion fitting, will be zero padded or cut
+auto_length_return (float): if not False: length of the returned autocorrelation inn fs</p>
+</dd>
+<dt>Returns:</dt><dd><p>Tuple[np.ndarray, np.ndarray, np.ndarray]: Reconstructed spectral density, sampled frequencies, and super-resolved autocorrelation function.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.sd_from_noise.tv_norm_2d">
+<span class="sig-prename descclassname"><span class="pre">torchnise.sd_from_noise.</span></span><span class="sig-name descname"><span class="pre">tv_norm_2d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lambda_ij</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.sd_from_noise.tv_norm_2d" title="Link to this definition">¶</a></dt>
+<dd><p>Calculate the total variation norm across both dimensions.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>lambda_ij (torch.Tensor): Input tensor.</p>
+</dd>
+<dt>Returns:</dt><dd><p>torch.Tensor: Total variation norm.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-torchnise.units">
+<span id="torchnise-units-module"></span><h2>torchnise.units module<a class="headerlink" href="#module-torchnise.units" title="Link to this heading">¶</a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="torchnise.units.set_units">
+<span class="sig-prename descclassname"><span class="pre">torchnise.units.</span></span><span class="sig-name descname"><span class="pre">set_units</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">e_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cm-1'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t_unit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'fs'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#torchnise.units.set_units" title="Link to this definition">¶</a></dt>
+<dd><p>set_the units for time and energy for the entire module</p>
+<dl class="simple">
+<dt>Parameters:</dt><dd><p>e_unit (string): Energy unit to be used. Must be one of &quot;cm-1&quot;, &quot;ev&quot;, &quot;j&quot;
+t_unit (float):  Time unit to be used. Must be one of &quot;fs&quot;, &quot;ps&quot;, &quot;s&quot;</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-torchnise">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-torchnise" title="Link to this heading">¶</a></h2>
+</section>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">TorchNISE</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, Yannick Holkamp, Emiliano Godinez, Ulrich Kleinekathöfer.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+      |
+      <a href="../../_sources/docs/source/torchnise.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
