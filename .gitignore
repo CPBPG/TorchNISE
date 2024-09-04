@@ -1,9 +1,15 @@
 #Project specific
 **/data/
 **/plots/
-test_scripts/
+**/test_scripts/
+*.rst
 *.npy
 *.pt
+conf.py
+.pylintrc
+Makefile
+make.bat
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
