@@ -121,10 +121,10 @@ def noise_algorithm(shape, dt, spectral_func, axis=-1, sample_dist=None,
 
     # Fourier transform of the white noise along the steps axis
     freq = (np.fft.fft(white_noise, axis=axis) *
-            (1 / np.sqrt(dt * units.t_unit)))
+            (1 / np.sqrt(dt * units.T_UNIT)))
 
     # Frequencies associated with the FFT of white noise
-    freq_bins = np.fft.fftfreq(shape[axis], dt * units.t_unit) * 2 * np.pi
+    freq_bins = np.fft.fftfreq(shape[axis], dt * units.T_UNIT) * 2 * np.pi
 
     # Envelope the frequencies with the spectral function
     spectral_density = np.sqrt(spectral_func(freq_bins))

@@ -56,8 +56,8 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         coherences, and time evolution operators.
     """
     n_sites = hfull.shape[-1]
-    factor = 1j * 1 / units.hbar * dt * units.t_unit
-    kbt = temperature * units.k
+    factor = 1j * 1 / units.HBAR * dt * units.T_UNIT
+    kbt = temperature * units.K
 
     total_steps = int(total_time / dt) + 1
     total_steps_saved = int(total_time / dt / save_interval) + 1
@@ -341,7 +341,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         trajectory_steps = h.shape[0]
         if realizations > 1:
             window = int((trajectory_steps - total_steps) / (realizations - 1))
-            print(f"window is {window * dt} {units.current_t_unit}")
+            print(f"window is {window * dt} {units.CURRENT_T_UNIT}")
 
     def generate_hfull_chunk(chunk_size, start_index=0, window=1):
         if time_dependent_h:
@@ -419,7 +419,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
 
     if mode.lower() == "absorption":
         avg_absorb_time = np.average(all_absorb_time, axis=0, weights=weights)
-        pad = int(absorption_padding / (dt * units.t_unit))
+        pad = int(absorption_padding / (dt * units.T_UNIT))
         absorb_config = {
             "total_time": total_time,
             "dt": dt,

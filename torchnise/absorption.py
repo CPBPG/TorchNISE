@@ -99,8 +99,8 @@ def absorb_time_to_freq(absorb_time, config):
     # FFT to frequency domain
     absorb_f = np.fft.fftshift(np.fft.fft(absorb))
     freq = np.fft.fftfreq(int((total_time + dt) / dt) + pad,
-                          d=dt * units.t_unit)
-    x_axis = -units.hbar * 2 * np.pi * np.fft.fftshift(freq)
+                          d=dt * units.T_UNIT)
+    x_axis = -units.HBAR * 2 * np.pi * np.fft.fftshift(freq)
     absorb_f_max = np.max(absorb_f.real - absorb_f.real[0])
     absorb_f = (absorb_f.real - absorb_f.real[0]) / absorb_f_max
     return absorb_f, x_axis

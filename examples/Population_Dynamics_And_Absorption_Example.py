@@ -23,7 +23,7 @@ H=torch.tensor([[100,100],
 n_sites=H.shape[0]
 T=300 #K
 
-Omega_k=torch.tensor([0,725,1200])/torchnise.units.hbar
+Omega_k=torch.tensor([0,725,1200])/torchnise.units.HBAR
 lambda_k=torch.tensor([100,100,100])
 v_k=torch.tensor([1/100,1/100,1/100])
 

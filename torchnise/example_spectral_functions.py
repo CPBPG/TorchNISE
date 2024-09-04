@@ -18,7 +18,7 @@ def spectral_drude(w, gamma, strength, temperature):
     Returns:
         numpy.ndarray: Spectral density.
     """
-    spectral_density = (4 * gamma * strength * units.k * temperature /
+    spectral_density = (4 * gamma * strength * units.K * temperature /
                         (w**2 + gamma**2))
     return spectral_density
 
@@ -39,7 +39,7 @@ def spectral_lorentz(w, wk, sk, temperature, gammak):
     """
     spectral_density = 0
     for i, wk_i in enumerate(wk):
-        spectral_density += (units.hbar * 4 * units.k * temperature * sk[i]
+        spectral_density += (units.HBAR * 4 * units.K * temperature * sk[i]
                              * wk_i**3 * gammak /
                              ((wk_i**2 - w**2)**2 + (w**2 * gammak**2)))
     return spectral_density
@@ -61,10 +61,10 @@ def spectral_drude_lorentz(w, gamma, strength, wk, sk, temperature, gammak):
     Returns:
         numpy.ndarray: Spectral density.
     """
-    spectral_density = (4 * gamma * strength * units.k * temperature /
+    spectral_density = (4 * gamma * strength * units.K * temperature /
                         (w**2 + gamma**2))
     for i, wk_i in enumerate(wk):
-        spectral_density += (units.hbar * 4 * units.k * temperature * sk[i] *
+        spectral_density += (units.HBAR * 4 * units.K * temperature * sk[i] *
                              wk_i**3 * gammak /
                              ((wk_i**2 - w**2)**2 + (w**2 * gammak**2)))
     return spectral_density
@@ -86,9 +86,9 @@ def spectral_drude_lorentz_heom(w, omega_k, lambda_k, temperature, vk):
     """
     spectral_density = 0
     for i, omega_k_i in enumerate(omega_k):
-        spectral_density += (2 * units.k * temperature * vk[i] * lambda_k[i] /
+        spectral_density += (2 * units.K * temperature * vk[i] * lambda_k[i] /
                              ((omega_k_i - w)**2 + vk[i]**2))
-        spectral_density += (2 * units.k * temperature * vk[i] * lambda_k[i] /
+        spectral_density += (2 * units.K * temperature * vk[i] * lambda_k[i] /
                              ((omega_k_i + w)**2 + vk[i]**2))
     return spectral_density
 
@@ -107,8 +107,8 @@ def spectral_log_normal(w, s_hr, sigma, wc, temperature):
     Returns:
         numpy.ndarray: Spectral density.
     """
-    spectral_density = (np.sqrt(2 * np.pi) * units.k * temperature * s_hr *
-                        units.hbar / sigma *
+    spectral_density = (np.sqrt(2 * np.pi) * units.K * temperature * s_hr *
+                        units.HBAR / sigma *
                         np.exp(-(np.log(w / wc))**2 / (2 * sigma**2)))
     spectral_density[np.isnan(spectral_density)] = 0
     return spectral_density
