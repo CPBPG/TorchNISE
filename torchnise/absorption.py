@@ -71,11 +71,11 @@ def absorb_time_to_freq(absorb_time, config):
             - total_time (float): Total time duration of the absorption signal.
             - dt (float): Time step size.
             - pad (int): Number of zero padding points for higher frequency 
-                resolution.
+            resolution.
             - smoothdamp (bool): Whether to smooth the transition to the padded 
-                region with an exponential damping.
+            region with an exponential damping.
             - smoothdamp_start_percent (int): Percentage of the time domain 
-                absorption affected by smoothing.
+            absorption affected by smoothing.
 
     Returns:
         tuple: (numpy.ndarray, numpy.ndarray)

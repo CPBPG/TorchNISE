@@ -12,18 +12,18 @@ def inverse_sample(dist, shape, x_min=-100, x_max=100, n=1e5, **kwargs):
     Generates samples from a given distribution using the inverse transform
     sampling method.
     
-    Parameters:
-    - dist (callable): Probability density function (PDF) of the desired
-        distribution.
-    - shape (tuple): Shape of the output samples.
-    - x_min (float): Minimum x value for the range of the distribution.
-    - x_max (float): Maximum x value for the range of the distribution.
-    - n (int): Number of points used to approximate the cumulative distribution
-        function (CDF).
-    - **kwargs: Additional arguments to pass to the PDF function.
+    Args:
+        dist (callable): Probability density function (PDF) of the desired
+            distribution.
+        shape (tuple): Shape of the output samples.
+        x_min (float): Minimum x value for the range of the distribution.
+        x_max (float): Maximum x value for the range of the distribution.
+        n (int): Number of points used to approximate the cumulative distribution
+            function (CDF).
+        **kwargs: Additional arguments to pass to the PDF function.
     
     Returns:
-    - np.ndarray: Samples drawn from the specified distribution.
+        np.ndarray: Samples drawn from the specified distribution.
     """
     x = np.linspace(x_min, x_max, int(n))
     cumulative = np.cumsum(dist(x, **kwargs))
@@ -37,17 +37,17 @@ def gen_noise(spectral_funcs, dt, shape):
     Generates time-correlated noise following the power spectrums provided in
     spectral_funcs.
     
-    Parameters:
-    - shape (tuple): Shape of the output noise array. The first dimension is
-        the number of realizations, the second dimension is the number of
-        steps, and the remaining dimension is the number of sites.
-    - dt (float): Time step size.
-    - spectral_funcs (list(callable)): Must have either len 1 if all sites
-        follow the same power spectrum, or len n_sites=shape[-1] to provide a
-        separate power spectrum for each site.
+    Args:
+        shape (tuple): Shape of the output noise array. The first dimension is
+            the number of realizations, the second dimension is the number of
+            steps, and the remaining dimension is the number of sites.
+        dt (float): Time step size.
+        spectral_funcs (list(callable)): Must have either len 1 if all sites
+            follow the same power spectrum, or len n_sites=shape[-1] to provide a
+            separate power spectrum for each site.
     
     Returns:
-    - torch.Tensor: Time-correlated noise with the specified shape.
+        torch.Tensor: Time-correlated noise with the specified shape.
     """
     if len(shape) != 3:
         raise ValueError(f""""
@@ -82,24 +82,24 @@ def noise_algorithm(shape, dt, spectral_func, axis=-1, sample_dist=None,
     Generates time-correlated noise following the power spectrum provided in
     spectral_func.
     
-    Parameters:
-    - shape (tuple): Shape of the output noise array.
-    - dt (float): Time step size.
-    - spectral_func (callable): Function that defines the power spectrum of
-        the noise.
-    - axis (int, optional): The axis along which the noise should be
-        correlated. Default is -1 (last axis).
-    - sample_dist (callable, optional): Function to generate an array of
-        random numbers for non-normal distribution.
-    - discard_half (bool, optional): If True, generates noise for twice the
-        number of steps and discards the second half. Default is True.
-    - save (bool, optional): If True, saves the generated noise array to a
-        file.
-    - save_name (str, optional): Name of the file to save the noise array.
-        Required if save is True.
+    Args:
+        shape (tuple): Shape of the output noise array.
+        dt (float): Time step size.
+        spectral_func (callable): Function that defines the power spectrum of
+            the noise.
+        axis (int, optional): The axis along which the noise should be
+            correlated. Default is -1 (last axis).
+        sample_dist (callable, optional): Function to generate an array of
+            random numbers for non-normal distribution.
+        discard_half (bool, optional): If True, generates noise for twice the
+            number of steps and discards the second half. Default is True.
+        save (bool, optional): If True, saves the generated noise array to a
+            file.
+        save_name (str, optional): Name of the file to save the noise array.
+            Required if save is True.
     
     Returns:
-    - np.ndarray: Time-correlated noise with the specified shape.
+        np.ndarray: Time-correlated noise with the specified shape.
     """
     # Get positive axis
     axis = axis % len(shape)

@@ -52,10 +52,10 @@ torchnise.pytorch\_utility module
    :undoc-members:
    :show-inheritance:
 
-torchnise.sd\_from\_noise module
---------------------------------
+torchnise.spectral\_density\_generation module
+----------------------------------------------
 
-.. automodule:: torchnise.sd_from_noise
+.. automodule:: torchnise.spectral_density_generation
    :members:
    :undoc-members:
    :show-inheritance:

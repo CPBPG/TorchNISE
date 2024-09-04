@@ -194,15 +194,16 @@ def is_memory_mapped(tensor) -> bool:
     was created from a memory-mapped file.
 
     Parameters:
-    tensor (torch.Tensor): The PyTorch tensor to check.
+        tensor (torch.Tensor): The PyTorch tensor to check.
 
     Returns:
-    bool: True if the tensor is memory-mapped, False otherwise.
+        bool: True if the tensor is memory-mapped, False otherwise.
 
     Raises:
-    Warning: If the tensor's storage does not have a filename attribute, (usually
-             because pytorch version is less than 2.2) it can not be determined 
-             if the tensor is memory mapped. It is assumed that it is not.
+        Warning: If the tensor's storage does not have a filename attribute, 
+            (usually because pytorch version is less than 2.2) it can not be 
+            determined if the tensor is memory mapped. It is assumed that it 
+            is not.
     """
     storage = tensor.untyped_storage()
     if not hasattr(storage, 'filename'):
