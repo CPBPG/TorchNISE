@@ -25,7 +25,27 @@ from torchnise.fft_noise_gen import gen_noise
 
 def NISE_propagate(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_correction="None",
                    device="cpu",saveU=False,saveCoherence=False,MLNISE_inputs=None,MLNISE_Model=None):
-    
+    """
+    Propagate the quantum state using the NISE algorithm with optional thermal corrections.
+
+    Args:
+        Hfull (torch.Tensor): Hamiltonian of the system over time for different realizations.
+        realizations (int): Number of noise realizations to simulate.
+        psi0 (torch.Tensor): Initial state of the system.
+        total_time (float): Total time for the simulation.
+        dt (float): Time step size.
+        T (float): Temperature for thermal corrections.
+        save_Interval (int, optional): Interval for saving results. Defaults to 1.
+        T_correction (str, optional): Method for thermal correction ("None", "TNISE", "MLNISE"). Defaults to "None".
+        device (str, optional): Device for computation ("cpu" or "cuda"). Defaults to "cpu".
+        saveU (bool, optional): If True, save time evolution operators. Defaults to False.
+        saveCoherence (bool, optional): If True, save coherences. Defaults to False.
+        MLNISE_inputs (tuple, optional): Inputs for MLNISE model. Defaults to None.
+        MLNISE_Model (nn.Module, optional): Machine learning model for MLNISE corrections. Defaults to None.
+
+    Returns:
+        tuple: (torch.Tensor, torch.Tensor, torch.Tensor) - Populations, coherences, and time evolution operators.
+    """
     n_sites=Hfull.shape[-1] #Number of Sites
     factor=1j* 1/torchnise.units.hbar*dt*torchnise.units.t_unit
     kBT=T*torchnise.units.k
@@ -103,6 +123,24 @@ def NISE_propagate(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_cor
 
 
 def t_correction(S,n_sites,realizations,device,E,Eold,T_correction,kBT,MLNISE_Model,phiB):
+    """
+    Apply thermal corrections to the non-adiabatic coupling matrix.
+
+    Args:
+        S (torch.Tensor): Non-adiabatic coupling matrix.
+        n_sites (int): Number of sites in the system.
+        realizations (int): Number of noise realizations.
+        device (str): Device for computation ("cpu" or "cuda").
+        E (torch.Tensor): Eigenvalues of the Hamiltonian at the current time step.
+        Eold (torch.Tensor): Eigenvalues of the Hamiltonian at the previous time step.
+        T_correction (str): Method for thermal correction ("TNISE", "MLNISE").
+        kBT (float): Thermal energy (k_B * T).
+        MLNISE_Model (nn.Module): Machine learning model for MLNISE corrections.
+        phiB (torch.Tensor): Wavefunction in the eigenbasis.
+ 
+    Returns:
+        torch.Tensor: Corrected non-adiabatic coupling matrix.
+    """
     for ii in range(0,n_sites):
         maxC=torch.max(S[:,:,ii].real**2,1) #The order of the eigenstates is not well defined and might be flipped from one transition matrix to the transition matrix
         #to find the eigenstate that matches the previous eigenstate we find the eigenvectors that overlapp the most and we use the index with the highest overlap (kk)
@@ -134,7 +172,28 @@ def t_correction(S,n_sites,realizations,device,E,Eold,T_correction,kBT,MLNISE_Mo
 
 def NISE_averaging(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_correction="None",averaging_method="standard",
          lifetime_factor=5,device="cpu", saveCoherence=False,saveU=False,MLNISE_inputs=None):
-    
+    """
+    Run NISE propagation with different averaging methods to calculate averaged population dynamics.
+
+    Args:
+        Hfull (torch.Tensor): Hamiltonian of the system over time for different realizations.
+        realizations (int): Number of noise realizations to simulate.
+        psi0 (torch.Tensor): Initial state of the system.
+        total_time (float): Total time for the simulation.
+        dt (float): Time step size.
+        T (float): Temperature for thermal corrections.
+        save_Interval (int, optional): Interval for saving results. Defaults to 1.
+        T_correction (str, optional): Method for thermal correction ("None", "TNISE", "MLNISE"). Defaults to "None".
+        averaging_method (str, optional): Method for averaging results ("standard", "boltzmann", "interpolated"). Defaults to "standard".
+        lifetime_factor (int, optional): Factor to scale estimated lifetimes. Defaults to 5.
+        device (str, optional): Device for computation ("cpu" or "cuda"). Defaults to "cpu".
+        saveCoherence (bool, optional): If True, save coherences. Defaults to False.
+        saveU (bool, optional): If True, save time evolution operators. Defaults to False.
+        MLNISE_inputs (tuple, optional): Inputs for MLNISE model. Defaults to None.
+
+    Returns:
+        tuple: (torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor) - Averaged populations, coherences, time evolution operators, and lifetimes.
+    """
     with torch.no_grad():
 
         n_sites=Hfull.shape[-1] # get the number of sites from the size of the hamiltonian
@@ -167,8 +226,32 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
                T_correction="None",mode="Population",mu=None, aborption_padding=10000,
                averaging_method="Standard", lifetime_factor=5,maxreps=100000,MLNISE_inputs=None,
                device="cpu"):
-    hbar = torchnise.units.hbar
+    """
+    Main function to run NISE simulations for population dynamics or absorption spectra.
     
+    Args:
+        H (torch.Tensor): Hamiltonian of the system over time or single Hamiltonian with noise.
+        realizations (int): Number of noise realizations to simulate.
+        total_time (float): Total time for the simulation.
+        dt (float): Time step size.
+        initialState (torch.Tensor): Initial state of the system.
+        T (float): Temperature for thermal corrections.
+        spectral_funcs (callable): Spectral density functions for noise generation.
+        save_Interval (int, optional): Interval for saving results. Defaults to 1.
+        T_correction (str, optional): Method for thermal correction ("None", "TNISE", "MLNISE"). Defaults to "None".
+        mode (str, optional): Simulation mode ("Population" or "Absorption"). Defaults to "Population".
+        mu (torch.Tensor, optional): Dipole moments for absorption calculations. Defaults to None.
+        aborption_padding (int, optional): Padding for absorption spectra calculation. Defaults to 10000.
+        averaging_method (str, optional): Method for averaging results ("Standard", "Boltzmann", "Interpolated"). Defaults to "Standard".
+        lifetime_factor (int, optional): Factor to scale estimated lifetimes. Defaults to 5.
+        maxreps (int, optional): Maximum number of realizations per chunk. Defaults to 100000.
+        MLNISE_inputs (tuple, optional): Inputs for MLNISE model. Defaults to None.
+        device (str, optional): Device for computation ("cpu" or "cuda"). Defaults to "cpu".
+    
+    Returns:
+        tuple: Depending on mode, returns either (np.ndarray, np.ndarray) for absorption spectrum and frequency axis,
+               or (torch.Tensor, torch.Tensor) for averaged populations and time axis.
+    """   
     total_steps = int((total_time + dt) / dt)
     save_steps  = int((total_time + dt*save_Interval) / (dt*save_Interval))
     n_state = H.shape[-1] #H_0.shape[1] if time_dependent_H else H_0.shape[0]
@@ -254,6 +337,23 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
 
    
 class MLNISE_model(nn.Module):
+    """
+    Predict correction factors for non-adiabatic coupling based on input features.
+
+    Args:
+        MLNISE_inputs (tuple): Inputs for MLNISE model.
+        DE (torch.Tensor): Energy differences between states.
+        kBT (float): Thermal energy (k_B * T).
+        phiB (torch.Tensor): Wavefunction in the eigenbasis.
+        S (torch.Tensor): Non-adiabatic coupling matrix.
+        jj (int): Index of the target state.
+        ii (int): Index of the current state.
+        realizations (int): Number of noise realizations.
+        device (str, optional): Device for computation ("cpu" or "cuda"). Defaults to "cpu".
+
+    Returns:
+        torch.Tensor: Correction factor for the non-adiabatic coupling matrix.
+    """
     #init contains all the free parameters of our method. In case of the neural networks its the layers of the neural networks
     def __init__(self):
         super(MLNISE_model, self).__init__()
