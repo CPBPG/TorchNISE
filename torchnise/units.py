@@ -20,6 +20,13 @@ hbar = hbar_cm
 t_unit = 1
 
 def set_units(e_unit="cm-1", t_unit="fs"):
+    """
+    set_the units for time and energy for the entire module
+
+    Parameters:
+        e_unit (string): Energy unit to be used. Must be one of "cm-1", "ev", "j"
+        t_unit (float):  Time unit to be used. Must be one of "fs", "ps", "s"
+    """
     global k, hbar, current_e_unit, current_t_unit  # Declare globals to modify them
     
     if e_unit.lower() not in e_units:
