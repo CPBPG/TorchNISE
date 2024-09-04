@@ -169,6 +169,7 @@ def t_correction(S,n_sites,realizations,device,E,Eold,T_correction,kBT,MLNISE_Mo
         dummy2[1-CD>0]=S_clone.clone()[1-CD>0]/norm[1-CD>0]
         dummy3=dummy1*dummy2
         S[1-CD>0,kk[1-CD>0],ii]=dummy3[1-CD>0]
+        return S
 
 def NISE_averaging(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_correction="None",averaging_method="standard",
          lifetime_factor=5,device="cpu", saveCoherence=False,saveU=False,MLNISE_inputs=None):
@@ -329,7 +330,14 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
     if mode.lower() =="absorption":
         avg_absorb_time = np.average(all_absorb_time, axis=0, weights=weights)
         pad=int(aborption_padding/(dt*torchnise.units.t_unit))
-        absorb_f, x_axis = absorb_time_to_freq(avg_absorb_time,total_time,dt,pad=pad)
+        absorb_config = {
+            "total_time":total_time,
+            "dt": dt,
+            "pad": pad,
+            "smoothdamp": True,
+            "smoothdamp_start_percent": 10
+        }
+        absorb_f, x_axis = absorb_time_to_freq(avg_absorb_time, absorb_config)
         return absorb_f, x_axis
     else:
         return avg_output, torch.linspace(0,total_time,avg_output.shape[0])

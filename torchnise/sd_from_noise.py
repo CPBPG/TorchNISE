@@ -234,7 +234,7 @@ def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty, n
         lr (float, optional): Learning rate for the optimization algorithm. Defaults to 0.01.
         device (str, optional): Device for computation ('cuda' or 'cpu'). Defaults to 'cuda'.
         initial_guess (torch.Tensor, optional): Initial guess for the optimization. Defaults to None.
-        verbose (bool, optional): decide if infprmation should be printed
+        verbose (bool, optional): decide if information should be printed
 
     Returns:
         torch.Tensor: Optimized solution tensor.
@@ -296,42 +296,71 @@ def optimize_lambda(A, C, sparcity_penalty, l1_norm_penalty, solution_penalty, n
 
     return return_lambda
 
-def optimize_lambda_nnls(A, b,initial_guess=None, max_iter=1000,lr=0.01):
+def optimize_lambda_nnls(A, b,initial_guess=None, max_iter=1000,lr=0.01,verbose=False):
+    """
+    Perform non-negative least squares optimization using PyTorch.
+    
+    Args:
+        A (torch.Tensor): Matrix for the linear system.
+        b (torch.Tensor): Target vector.
+        initial_guess (torch.Tensor, optional): Initial guess for the optimization. Defaults to None.
+        max_iter (int, optional): Maximum number of iterations. Defaults to 1000.
+        lr (float, optional): Learning rate for the optimization algorithm. Defaults to 0.01.
+        erbose (bool, optional): decide if information should be printed
+    
+    Returns:
+        torch.Tensor: Optimized solution tensor.
+    """
     def A_transpose(y):
         return A.T @ y
+
     lambda_ij = A_transpose(b) if initial_guess is None else initial_guess
-    
-    lambda_ij=lambda_ij.detach().clone()
-    lambda_ij.requires_grad=True
-    return_lambda = lambda_ij 
-    optimizer = torch.optim.LBFGS([lambda_ij],lr=lr,line_search_fn="strong_wolfe") 
-    A @ torch.abs(lambda_ij)
+    lambda_ij = lambda_ij.detach().clone()
+    lambda_ij.requires_grad = True
+    return_lambda = lambda_ij
+
+    optimizer = torch.optim.LBFGS([lambda_ij], lr=lr, line_search_fn="strong_wolfe")
+    min_loss = torch.inf
+    no_improvement_iters = 0
+
     def closure():
         optimizer.zero_grad()
         loss = torch.norm(A @ torch.abs(lambda_ij) - b) ** 2
         loss.backward()
         return loss
-    min_loss=torch.inf
-    no_improvement_iters=0
+
     for i in range(max_iter):
-        
         optimizer.step(closure)
-        loss=closure().item()
+        loss = closure().item()
+
         if i % 10 == 0:
             print(f'Step {i}, Loss: {loss}')
-        if loss<min_loss:
-            min_loss=loss
-            no_improvement_iters=0
-            return_lambda=lambda_ij
+
+        if loss < min_loss:
+            min_loss = loss
+            no_improvement_iters = 0
+            return_lambda = lambda_ij
         else:
-            no_improvement_iters +=1
-        if no_improvement_iters >20:
-            print("no improvement for 20 iters")
+            no_improvement_iters += 1
+
+        if no_improvement_iters > 20:
+            print("No improvement for 20 iterations")
             break
+
     return torch.abs(return_lambda).detach()
     
 
 def adjust_tensor_length(a, l):
+    """
+    Adjust the length of a tensor by trimming or padding with zeros.
+
+    Args:
+        a (torch.Tensor): Input tensor.
+        l (int): Desired length of the output tensor.
+
+    Returns:
+        torch.Tensor: Adjusted tensor of length l.
+    """
     if len(a) == l:
         return a
     elif len(a) > l:
@@ -344,6 +373,17 @@ def adjust_tensor_length(a, l):
     return a
 
 def ensure_tensor_on_device(array, device='cuda',dtype=torch.float):
+    """
+    Ensure the input is a PyTorch tensor on the specified device. And move it if its not
+
+    Args:
+        array (np.ndarray or torch.Tensor): Input array or tensor.
+        device (str, optional): Desired device ('cuda' or 'cpu'). Defaults to 'cuda'.
+        dtype (torch.dtype, optional): Desired data type. Defaults to torch.float.
+
+    Returns:
+        torch.Tensor: Tensor on the specified device with the desired data type.
+    """
     if isinstance(array, np.ndarray):
         # Convert numpy array to PyTorch tensor and move to the specified device
         return torch.from_numpy(array).to(device).to(dtype)
@@ -355,7 +395,7 @@ def ensure_tensor_on_device(array, device='cuda',dtype=torch.float):
 
 def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_penalty=1, 
                                    solution_penalty=10000,negative_penalty=1,ljnorm_penalty=0 ,j=0.5, lr=0.01, max_iter=1000, eta=1e-7, 
-                                   tol=1e-7, device='cuda', cutoff=None, frequencies=None,dampings=None,
+                                   tol=1e-7, device='cuda', cutoff=None, frequencies=None,linewidths=None,
                                    sample_frequencies=None, top_n=False,top_tresh=False, second_optimization=False,chunk_memory=1e9,auto_length_debias=None,auto_length_return=None):
     """
     Reconstruct the super-resolution spectral density from the autocorrelation function.
@@ -376,6 +416,8 @@ def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_pena
         tol (float): Tolerance for convergence in the optimization.
         device (str): Device for computation ('cuda' or 'cpu').
         cutoff (float, optional): Cutoff for damping. Defaults to None.
+        frequencies (torch.tensor, optional): Frequencies for peaks that should be included in the optimization, otherwise default values are used
+        linewidths (torch.tensor, optional): Linewidths for peaks that should be included in the optimization, otherwise default values are used
         sample_frequencies (torch.Tensor, optional): Frequencies for sampling the spectral density. Defaults to None.
         top_n (int): If not False, only the top n coefficients are used. Defaults to False.
         top_tresh (float): Alternative to top_n chooses all coefficients above a treshold
@@ -403,13 +445,13 @@ def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_pena
     t_axis_very_orig = dt *torch.arange(0, len(auto_very_orig), device=device)
     if frequencies==None:
         frequencies = torch.arange(0, 0.2, 0.00005, device=device) / units.hbar
-    if dampings==None:
-        dampings = torch.arange(1, 200, 0.5, device=device) / units.hbar
+    if linewidths==None:
+        linewidths= torch.arange(1, 200, 0.5, device=device) / units.hbar
 
-    damping_term = torch.exp(-dampings[None, :] * t_axis[:, None])
+    linewidths_term = torch.exp(-linewidths[None, :] * t_axis[:, None])
     frequency_term = torch.cos(frequencies[None, :] * t_axis[:, None])
 
-    A = damping_term[:, :, None] * frequency_term[:, None, :]
+    A = linewidths_term[:, :, None] * frequency_term[:, None, :]
 
     auto_orig = auto.clone()
     auto = auto[:N_cut]
@@ -418,9 +460,9 @@ def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_pena
                                 negative_penalty, ljnorm_penalty, j, eta, max_iter=max_iter, 
                                 tol=tol, lr=lr, device=device)
     if top_n:
-        if top_n>len(dampings) * len(frequencies):
+        if top_n>len(linewidths) * len(frequencies):
             warnings.warn("top_n larger than total elements, using all available coefficients.")
-            top_n=len(dampings) * len(frequencies)
+            top_n=len(linewidths) * len(frequencies)
         _, indices = torch.topk(lambda_ij.flatten(), top_n) #removed abs since we don't want negative peaks anyway
         
         if second_optimization:         
@@ -429,7 +471,7 @@ def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_pena
             for k in range(top_n):
                 i = original_indices[0][k]
                 j = original_indices[1][k]
-                A_new[:, k] = torch.exp(-dampings[i] * t_axis_full) * torch.cos(frequencies[j] * t_axis_full) 
+                A_new[:, k] = torch.exp(-linewidths[i] * t_axis_full) * torch.cos(frequencies[j] * t_axis_full) 
             
             lambda_ij_new = optimize_lambda_nnls(A_new,auto_orig,initial_guess=lambda_ij.flatten()[indices]) #torch.linalg.lstsq(A_new, auto_orig)[0] #
             lambda_ij_debias = torch.zeros_like(lambda_ij, device=device)
@@ -450,7 +492,7 @@ def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_pena
             for k in range(top_n):
                 i = original_indices[0][k]
                 j = original_indices[1][k]
-                A_new[:, k] = torch.exp(-dampings[i] * t_axis_full) * torch.cos(frequencies[j] * t_axis_full) 
+                A_new[:, k] = torch.exp(-linewidths[i] * t_axis_full) * torch.cos(frequencies[j] * t_axis_full) 
             
             lambda_ij_new = optimize_lambda_nnls(A_new,auto_orig,initial_guess=lambda_ij.flatten()[indices]) #torch.linalg.lstsq(A_new, auto_orig)[0] #
             lambda_ij_debias = torch.zeros_like(lambda_ij, device=device)
@@ -473,15 +515,15 @@ def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_pena
         J_new = torch.zeros_like(sample_frequencies)
        
         # Calculate the chunk size that would use less than the specified chunk_memory
-        chunk_size = int(chunk_memory / (3*len(frequencies) * len(dampings) * auto.element_size()))
+        chunk_size = int(chunk_memory / (3*len(frequencies) * len(linewidths) * auto.element_size()))
         chunk_size = max (chunk_size,1)
         for i in range(0, sample_frequencies.shape[0], chunk_size):
             max_idx = min(i + chunk_size, sample_frequencies.shape[0])
             sample_freq_chunk = sample_frequencies[i:max_idx]
-            T_frequencies_gamma = sample_freq_chunk[:, None, None] * dampings[None, :, None] * np.pi * 2
+            T_frequencies_gamma = sample_freq_chunk[:, None, None] * linewidths[None, :, None] * np.pi * 2
 
-            term1 = T_frequencies_gamma / (dampings[None, :, None]**2 + (sample_freq_chunk[:, None, None] - frequencies[None, None, :])**2)
-            term2 = T_frequencies_gamma / (dampings[None, :, None]**2 + (sample_freq_chunk[:, None, None] + frequencies[None, None, :])**2)
+            term1 = T_frequencies_gamma / (linewidths[None, :, None]**2 + (sample_freq_chunk[:, None, None] - frequencies[None, None, :])**2)
+            term2 = T_frequencies_gamma / (linewidths[None, :, None]**2 + (sample_freq_chunk[:, None, None] + frequencies[None, None, :])**2)
 
             J_new[i:max_idx] = (lambda_ij[None, :, :] * (term1 + term2)).sum(dim=[1, 2]) 
         J_new=J_new.detach().cpu().numpy()
@@ -489,9 +531,9 @@ def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_pena
         auto_super = torch.zeros_like(auto_very_orig)
         for i in range(0, len(t_axis_full), chunk_size):
             max_idx = min(i + chunk_size, t_axis_full.shape[0])
-            damping_term_chunk = torch.exp(-dampings[None, :] * t_axis_full[i:max_idx, None])
+            linewidths_term_chunk = torch.exp(-linewidths[None, :] * t_axis_full[i:max_idx, None])
             frequency_term_chunk = torch.cos(frequencies[None, :] * t_axis_full[i:max_idx, None])
-            A_chunk = (damping_term_chunk[:, :, None] * frequency_term_chunk[:, None, :]).reshape(max_idx - i, len(dampings) * len(frequencies))
+            A_chunk = (linewidths_term_chunk[:, :, None] * frequency_term_chunk[:, None, :]).reshape(max_idx - i, len(linewidths) * len(frequencies))
             auto_super[i:max_idx] = A_chunk @ lambda_ij.flatten()
         auto_super = auto_super.detach().cpu().numpy()
 
@@ -502,14 +544,14 @@ def sd_reconstruct_superresolution(auto, dt, T, sparcity_penalty=1, l1_norm_pena
             for k in range(top_n):
                 i = original_indices[0][k]
                 j = original_indices[1][k]
-                A_new[:, k] = torch.exp(-dampings[i] * t_axis_very_orig) * torch.cos(frequencies[j] * t_axis_very_orig) 
+                A_new[:, k] = torch.exp(-linewidths[i] * t_axis_very_orig) * torch.cos(frequencies[j] * t_axis_very_orig) 
             auto_super_debias = A_new @ lambda_ij_new.flatten()
             for k in range(top_n):
                 i = original_indices[0][k]
                 j = original_indices[1][k]
-                T_frequencies_gamma= sample_frequencies*dampings[i] * np.pi * 2
-                term1 = T_frequencies_gamma / (dampings[i]**2 + (sample_frequencies - frequencies[j])**2)
-                term2 = T_frequencies_gamma / (dampings[i]**2 + (sample_frequencies + frequencies[j])**2)
+                T_frequencies_gamma= sample_frequencies*linewidths[i] * np.pi * 2
+                term1 = T_frequencies_gamma / (linewidths[i]**2 + (sample_frequencies - frequencies[j])**2)
+                term2 = T_frequencies_gamma / (linewidths[i]**2 + (sample_frequencies + frequencies[j])**2)
                 J_new_debias += lambda_ij_new[k]*(term1 + term2)
             J_new_debias=J_new_debias.detach().cpu().numpy()
             auto_super_debias=auto_super_debias.detach().cpu().numpy()

@@ -4,6 +4,8 @@ This file implements various Spectral functions returning the power spectrum.
 import numpy as np
 import torchnise.units as units
 
+
+
 def spectral_Drude(w,gamma,strength,T): #drude spectral density
     #converting the frequencies to angular frequencies. Update: done already on the definition as requested by professor        
     S = 4*gamma*strength*units.k*T/((w**2+gamma**2)) #calculating the spectral density. Recall S(w) =/ J(w)
