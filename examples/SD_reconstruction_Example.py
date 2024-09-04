@@ -50,7 +50,7 @@ for total_time in (100_000,1_000_000):
 
 for i in range (len(autos)):
     auto=autos[i]
-    for damping in ["exp","gauss","step"]:       
+    for damping in ["exp","gauss","step"]:
         J_new, x_axis ,auto_damp = SD_Reconstruct_FFT(auto,dt,T,damping_type=damping,cutoff=cutoff,rescale=False)
         S=spectralfunc(x_axis/units.hbar)
         SD=S/(2*np.pi*units.k*T)*x_axis/units.hbar

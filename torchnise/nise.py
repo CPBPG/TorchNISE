@@ -1,12 +1,13 @@
+"""
+This file contains the main module Implementing the NISE calculations
+"""
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 import numpy as np
 import tqdm
-import torchnise
-
 from torchnise.pytorch_utility import renorm
-
+from torchnise import units
 from torchnise.averaging_and_lifetimes import (
     estimate_lifetime,
     averaging
@@ -19,319 +20,408 @@ from torchnise.absorption import (
 
 from torchnise.fft_noise_gen import gen_noise
 
-
-
-                
-
-def NISE_propagate(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_correction="None",
-                   device="cpu",saveU=False,saveCoherence=False,MLNISE_inputs=None,MLNISE_Model=None):
+def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
+                   save_interval=1, t_correction="None", device="cpu",
+                   save_u=False, save_coherence=False, mlnise_inputs=None,
+                   mlnise_model=None):
     """
-    Propagate the quantum state using the NISE algorithm with optional thermal corrections.
+    Propagate the quantum state using the NISE algorithm with optional thermal
+        corrections.
 
     Args:
-        Hfull (torch.Tensor): Hamiltonian of the system over time for different realizations.
+        hfull (torch.Tensor): Hamiltonian of the system over time for different
+            realizations.
         realizations (int): Number of noise realizations to simulate.
         psi0 (torch.Tensor): Initial state of the system.
         total_time (float): Total time for the simulation.
         dt (float): Time step size.
-        T (float): Temperature for thermal corrections.
-        save_Interval (int, optional): Interval for saving results. Defaults to 1.
-        T_correction (str, optional): Method for thermal correction ("None", "TNISE", "MLNISE"). Defaults to "None".
-        device (str, optional): Device for computation ("cpu" or "cuda"). Defaults to "cpu".
-        saveU (bool, optional): If True, save time evolution operators. Defaults to False.
-        saveCoherence (bool, optional): If True, save coherences. Defaults to False.
-        MLNISE_inputs (tuple, optional): Inputs for MLNISE model. Defaults to None.
-        MLNISE_Model (nn.Module, optional): Machine learning model for MLNISE corrections. Defaults to None.
+        temperature (float): Temperature for thermal corrections.
+        save_interval (int, optional): Interval for saving results. Defaults to
+            1.
+        t_correction (str, optional): Method for thermal correction
+            ("None", "TNISE", "MLNISE"). Defaults to "None".
+        device (str, optional): Device for computation ("cpu" or "cuda").
+            Defaults to "cpu".
+        save_u (bool, optional): If True, save time evolution operators.
+            Defaults to False.
+        save_coherence (bool, optional): If True, save coherences.
+            Defaults to False.
+        mlnise_inputs (tuple, optional): Inputs for MLNISE model.
+            Defaults to None.
+        mlnise_model (nn.Module, optional): Machine learning model for MLNISE
+            corrections. Defaults to None.
 
     Returns:
-        tuple: (torch.Tensor, torch.Tensor, torch.Tensor) - Populations, coherences, and time evolution operators.
+        tuple: (torch.Tensor, torch.Tensor, torch.Tensor) - Populations,
+        coherences, and time evolution operators.
     """
-    n_sites=Hfull.shape[-1] #Number of Sites
-    factor=1j* 1/torchnise.units.hbar*dt*torchnise.units.t_unit
-    kBT=T*torchnise.units.k
-    
-    total_steps=int(total_time/dt)+1
-    total_steps_saved=int(total_time/dt/save_Interval)+1
-    PSLOC=torch.zeros((realizations,total_steps_saved,n_sites),device=device)
-    
-    if saveCoherence:
-        CohLoc=torch.zeros((realizations,total_steps_saved,n_sites,n_sites),
-                           device=device,dtype=torch.complex64)
-    H=Hfull[:,0,:,:].clone().to(device=device) #grab the 0th timestep [all realizations : 0th timestep  : all sites : all sites]
-    E,C=torch.linalg.eigh(H) #get initial eigenenergies and transition matrix from eigen to site basis.
+    n_sites = hfull.shape[-1]
+    factor = 1j * 1 / units.hbar * dt * units.t_unit
+    kbt = temperature * units.k
+
+    total_steps = int(total_time / dt) + 1
+    total_steps_saved = int(total_time / dt / save_interval) + 1
+    psloc = torch.zeros((realizations, total_steps_saved, n_sites),
+                        device=device)
+
+    if save_coherence:
+        coh_loc = torch.zeros((realizations, total_steps_saved, n_sites,
+                               n_sites), device=device, dtype=torch.complex64)
+    #grab the 0th timestep
+    #[all realizations : 0th timestep  : all sites : all sites]
+    h = hfull[:, 0, :, :].clone().to(device=device)
+    #get initial eigenenergies and transition matrix from eigen to site basis.
+    e, c = torch.linalg.eigh(h)
     # Since the Hamiltonian is hermitian we van use eigh
-    # H contains the hamiltonians of all realizations. To our advantage The eigh torch function (like almost all torch functions)
-    # is setup so that it can efficently calculate the results for a whole batch of inputs
-    Cold=C
-    Eold=E
-    psi0=psi0.repeat(realizations,1)
-    psi0=psi0.unsqueeze(-1)
-    pop0=(psi0[:,:,0]**2)
-    PSLOC[:,0,:]=pop0 #Save the population of the first timestep
-    phiB=Cold.transpose(1,2).to(dtype=torch.complex64).bmm(psi0.to(dtype=torch.complex64)) #Use the transition Matrix to transfer to the eigenbasis. Bmm is a batched matrix multiplication, so it does the matrix multiplication for all batches at once
-    if saveCoherence:
+    # H contains the hamiltonians of all realizations.
+    # To our advantage The eigh torch function (like almost all torch
+    # functions) is setup so that it can efficently calculate the results for a
+    # whole batch of inputs
+    cold = c
+    eold = e
+    psi0 = psi0.repeat(realizations, 1)
+    psi0 = psi0.unsqueeze(-1)
+    pop0 = (psi0[:, :, 0] ** 2)
+    psloc[:, 0, :] = pop0 #Save the population of the first timestep
+    #Use the transition Matrix to transfer to the eigenbasis.
+    #Bmm is a batched matrix multiplication, so it does the matrix
+    #multiplication for all batches at once
+    phi_b = cold.transpose(1, 2).to(dtype=torch.complex64).bmm(
+                                                psi0.to(dtype=torch.complex64))
+    if save_coherence:
         for i in range(n_sites):
-            CohLoc[:,0,i,i]=pop0[:,i]
-    if saveU:
-        ULOC=torch.zeros((realizations,total_steps_saved,n_sites,n_sites),device=device,dtype=torch.complex64)        
-        identiy=torch.eye(n_sites,dtype=torch.complex64)
-        identiy=identiy.reshape(1,n_sites,n_sites)
-        ULOC[:,0,:,:]= identiy.repeat(realizations,1,1)
-        UB=Cold.transpose(1,2).to(dtype=torch.complex64).bmm(ULOC[:,0,:,:])
-        UB=UB.to(dtype=torch.complex64).to(device=device)
-        
-    #Now we get to the step by step timepropagation. We start at 1 and not 0 since we have already filled the first slot of our population dynamics
+            coh_loc[:, 0, i, i] = pop0[:, i]
+    if save_u:
+        uloc = torch.zeros((realizations, total_steps_saved, n_sites, n_sites),
+                           device=device, dtype=torch.complex64)
+        identity = torch.eye(n_sites, dtype=torch.complex64)
+        identity = identity.reshape(1, n_sites, n_sites)
+        uloc[:, 0, :, :] = identity.repeat(realizations, 1, 1)
+        ub = cold.transpose(1, 2).to(dtype=torch.complex64).bmm(
+                                                            uloc[:, 0, :, :])
+        ub = ub.to(dtype=torch.complex64).to(device=device)
+
+    #Now we get to the step by step timepropagation.
+    #We start at 1 and not 0 since we have already filled the first slot of
+    #our population dynamics
     for t in tqdm.tqdm(range(1,total_steps)):
-        H=Hfull[:,t,:,:].clone().to(device=device)   #grab the t'th timestep [all realizations : t'th timestep  : all sites : all sites]
-        E,v_eps=torch.linalg.eigh(H)
-        C=v_eps
-        S=torch.matmul(C.transpose(1,2),Cold) #multiply the old with the new transition matrix to get the non-adiabatic coupling
-        if T_correction.lower() in ["mlnise","tnise"]:
-            S=t_correction(S,n_sites,realizations,device,E,Eold,T_correction,kBT,MLNISE_Model,phiB)
-        U=torch.diag_embed(torch.exp(-E[:,:]*factor)).bmm(S.to(dtype=torch.complex64))  #Make the Time Evolution operator
-        phiB=U.bmm(phiB) #Apply the time evolution operator
-        if saveU:
-            UB=U.bmm(UB)
-        if T_correction.lower() in ["mlnise","tnise"]:
-            phiB=renorm(phiB,dim=1) #Renormalize
-        Cold=C #Set the new variables to the old variables for the next step
-        Eold=E #
+        #grab the t'th timestep
+        #[all realizations : t'th timestep  : all sites : all sites]
+        e, v_eps = torch.linalg.eigh(h)
+        c = v_eps
+        #multiply the old with the new transition matrix to get the
+        #non-adiabatic coupling
+        s = torch.matmul(c.transpose(1, 2), cold)
+        if t_correction.lower() in ["mlnise", "tnise"]:
+            s = apply_t_correction(s, n_sites, realizations, device, e, eold,
+                                   t_correction, kbt, mlnise_model,
+                                   mlnise_inputs, phi_b)
+        #Make the Time Evolution operator
+        u = torch.diag_embed(torch.exp(-e[:, :] * factor)).bmm(
+                                                s.to(dtype=torch.complex64))
+        phi_b = u.bmm(phi_b) #Apply the time evolution operator
+        if save_u:
+            ub = u.bmm(ub)
 
-        C=C.to(dtype=torch.complex64)  #Make the transition matrix complex
+        if t_correction.lower() in ["mlnise", "tnise"]:
+            phi_b = renorm(phi_b, dim=1)
+        cold = c
+        eold = e
+        c = c.to(dtype=torch.complex64)
 
-        PhiBinLocBase=C.bmm(phiB) #Tranision to the site basis
-        
-        if t%save_Interval==0:
-            PSLOC[:,t//save_Interval,:]=((PhiBinLocBase.abs()**2)[:,:,0]) #Save the result in the site Basis
-            if saveU:
-                if T_correction.lower() in ["mlnise","tnise"]:
-                    for i in range(0,n_sites):
-                        UB_Norm_Row=renorm(UB[:,:,i],dim=1)
-                        UB[:,:,i]=UB_Norm_Row[:,:]
-                ULOC[:,t//save_Interval,:,:]=(C.bmm(UB))              
-            if saveCoherence:
-                CohLoc[:,t//save_Interval,:,:]= PhiBinLocBase.squeeze(-1)[:, :, None] * PhiBinLocBase.squeeze(-1)[:, None, :].conj()
-    if not saveCoherence:
-        CohLoc = None
-    else:
-        CohLoc = CohLoc.cpu()
-    if not saveU:
-        ULOC = None
-    else:
-        ULOC = ULOC.cpu()
-    return PSLOC.cpu(), CohLoc ,ULOC
+        phi_bin_loc_base = c.bmm(phi_b) #Transition to the site basis
 
+        if t % save_interval == 0:
+            psloc[:, t // save_interval, :] = (
+                        (phi_bin_loc_base.abs() ** 2)[:, :, 0] )
+            if save_u:
+                if t_correction.lower() in ["mlnise", "tnise"]:
+                    for i in range(n_sites):
+                        ub_norm_row = renorm(ub[:, :, i], dim=1)
+                        ub[:, :, i] = ub_norm_row[:, :]
 
-def t_correction(S,n_sites,realizations,device,E,Eold,T_correction,kBT,MLNISE_Model,phiB):
+                uloc[:, t // save_interval, :, :] = c.bmm(ub)
+
+            if save_coherence:
+                coh_loc[:, t // save_interval, :, :] = (
+                    phi_bin_loc_base.squeeze(-1)[:, :, None] *
+                    phi_bin_loc_base.squeeze(-1)[:, None, :].conj()
+                )
+    coh_loc = coh_loc.cpu() if save_coherence else None
+    uloc = uloc.cpu() if save_u else None
+
+    return psloc.cpu(), coh_loc, uloc
+
+def apply_t_correction(s, n_sites, realizations, device, e, eold,
+                       t_correction, kbt, mlnise_model, mlnise_inputs, phi_b):
     """
     Apply thermal corrections to the non-adiabatic coupling matrix.
 
     Args:
-        S (torch.Tensor): Non-adiabatic coupling matrix.
+        s (torch.Tensor): Non-adiabatic coupling matrix.
         n_sites (int): Number of sites in the system.
         realizations (int): Number of noise realizations.
         device (str): Device for computation ("cpu" or "cuda").
-        E (torch.Tensor): Eigenvalues of the Hamiltonian at the current time step.
-        Eold (torch.Tensor): Eigenvalues of the Hamiltonian at the previous time step.
-        T_correction (str): Method for thermal correction ("TNISE", "MLNISE").
-        kBT (float): Thermal energy (k_B * T).
-        MLNISE_Model (nn.Module): Machine learning model for MLNISE corrections.
-        phiB (torch.Tensor): Wavefunction in the eigenbasis.
+        e (torch.Tensor): Eigenvalues of the Hamiltonian at the current time
+            step.
+        eold (torch.Tensor): Eigenvalues of the Hamiltonian at the previous
+            time step.
+        t_correction (str): Method for thermal correction ("TNISE", "MLNISE").
+        kbt (float): Thermal energy (k_B * T).
+        mlnise_model (nn.Module): Machine learning model for MLNISE
+            corrections.
+        mlnise_inputs (tuple, optional): Inputs for MLNISE model.
+        phi_b (torch.Tensor): Wavefunction in the eigenbasis.
  
     Returns:
         torch.Tensor: Corrected non-adiabatic coupling matrix.
     """
     for ii in range(0,n_sites):
-        maxC=torch.max(S[:,:,ii].real**2,1) #The order of the eigenstates is not well defined and might be flipped from one transition matrix to the transition matrix
-        #to find the eigenstate that matches the previous eigenstate we find the eigenvectors that overlapp the most and we use the index with the highest overlap (kk)
-        #instead of the original index ii to index the non adiabatic coupling correctly
-        kk=maxC.indices
-        CD=torch.zeros(realizations,device=device)
-        for jj in range(0,n_sites):
-            DE=E[:,jj]-Eold[:,ii]
-            DE[jj==kk]=0 #if they are the same state the energy difference is 0
-            if T_correction=="TNISE":
-                correction=torch.exp(-DE/kBT/4)
+        max_c = torch.max(s[:, :, ii].real ** 2, 1)
+        #The order of the eigenstates is not well defined and might be flipped
+        #from one transition matrix to the transition matrix
+        #to find the eigenstate that matches the previous eigenstate we find
+        #the eigenvectors that overlapp the most and we use the index with
+        #the highest overlap (kk) instead of the original index ii to index
+        #the non adiabatic coupling correctly
+        kk = max_c.indices
+        cd = torch.zeros(realizations, device=device)
+        for jj in range(n_sites):
+            de = e[:, jj] - eold[:, ii]
+            de[jj == kk] = 0 #if they are the same state the energy difference
+            #is 0
+            if t_correction == "TNISE":
+                correction = torch.exp(-de / kbt / 4)
             else:
-                correction=MLNISE_Model(DE,kBT,phiB,S,jj,ii,realizations,device=device)
-            S[:,jj,ii]=S[:,jj,ii].clone()*correction
-            AddCD=S[:,jj,ii].clone()**2
-            AddCD[jj==kk]=0
-            CD=CD.clone()+AddCD
-        #The renormalization procedure broken into smaller steps, 
+                correction = mlnise_model(mlnise_inputs, de, kbt, phi_b, s, jj,
+                                          ii, realizations, device=device)
+
+            s[:, jj, ii] = s[:, jj, ii].clone() * correction
+            add_cd = s[:, jj, ii].clone() ** 2
+            add_cd[jj == kk] = 0
+            cd = cd.clone() + add_cd
+        #The renormalization procedure broken into smaller steps,
         #because previously some errors showed
         #should probably be simplified
-        norm=torch.abs(S[torch.arange(realizations),kk,ii].clone())
-        dummy1=torch.ones(realizations,device=device)
-        dummy1[1-CD>0]=torch.sqrt(1-CD[1-CD>0])
-        dummy2=torch.zeros(realizations,device=device)
-        S_clone=S[torch.arange(realizations),kk,ii].clone()
-        dummy2[1-CD>0]=S_clone.clone()[1-CD>0]/norm[1-CD>0]
-        dummy3=dummy1*dummy2
-        S[1-CD>0,kk[1-CD>0],ii]=dummy3[1-CD>0]
-        return S
+        norm = torch.abs(s[torch.arange(realizations), kk, ii].clone())
+        dummy1 = torch.ones(realizations, device=device)
+        dummy1[1 - cd > 0] = torch.sqrt(1 - cd[1 - cd > 0])
+        dummy2 = torch.zeros(realizations, device=device)
+        s_clone = s[torch.arange(realizations), kk, ii].clone()
+        dummy2[1 - cd > 0] = s_clone.clone()[1 - cd > 0] / norm[1 - cd > 0]
+        dummy3 = dummy1 * dummy2
+        s[1 - cd > 0, kk[1 - cd > 0], ii] = dummy3[1 - cd > 0]
+        return s
 
-def NISE_averaging(Hfull,realizations,psi0,total_time,dt,T,save_Interval=1,T_correction="None",averaging_method="standard",
-         lifetime_factor=5,device="cpu", saveCoherence=False,saveU=False,MLNISE_inputs=None):
+def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
+                   save_interval=1, t_correction="None",
+                   averaging_method="standard", lifetime_factor=5,
+                   device="cpu", save_coherence=True, save_u=False,
+                   mlnise_inputs=None):
     """
-    Run NISE propagation with different averaging methods to calculate averaged population dynamics.
+    Run NISE propagation with different averaging methods to calculate averaged
+    population dynamics.
 
     Args:
-        Hfull (torch.Tensor): Hamiltonian of the system over time for different realizations.
+        hfull (torch.Tensor): Hamiltonian of the system over time for different
+            realizations.
         realizations (int): Number of noise realizations to simulate.
         psi0 (torch.Tensor): Initial state of the system.
         total_time (float): Total time for the simulation.
         dt (float): Time step size.
-        T (float): Temperature for thermal corrections.
-        save_Interval (int, optional): Interval for saving results. Defaults to 1.
-        T_correction (str, optional): Method for thermal correction ("None", "TNISE", "MLNISE"). Defaults to "None".
-        averaging_method (str, optional): Method for averaging results ("standard", "boltzmann", "interpolated"). Defaults to "standard".
-        lifetime_factor (int, optional): Factor to scale estimated lifetimes. Defaults to 5.
-        device (str, optional): Device for computation ("cpu" or "cuda"). Defaults to "cpu".
-        saveCoherence (bool, optional): If True, save coherences. Defaults to False.
-        saveU (bool, optional): If True, save time evolution operators. Defaults to False.
-        MLNISE_inputs (tuple, optional): Inputs for MLNISE model. Defaults to None.
+        temperature (float): Temperature for thermal corrections.
+        save_interval (int, optional): Interval for saving results.
+            Defaults to 1.
+        t_correction (str, optional): Method for thermal correction
+            ("None", "TNISE", "MLNISE"). Defaults to "None".
+        averaging_method (str, optional): Method for averaging results
+            ("standard", "boltzmann", "interpolated"). Defaults to "standard".
+        lifetime_factor (int, optional): Factor to scale estimated lifetimes.
+            Defaults to 5.
+        device (str, optional): Device for computation ("cpu" or "cuda").
+            Defaults to "cpu".
+        save_coherence (bool, optional): If True, save coherences.
+            Defaults to False.
+        save_u (bool, optional): If True, save time evolution operators.
+            Defaults to False.
+        mlnise_inputs (tuple, optional): Inputs for MLNISE model.
+            Defaults to None.
 
     Returns:
-        tuple: (torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor) - Averaged populations, coherences, time evolution operators, and lifetimes.
+        tuple: (torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor) -
+            Averaged populations, coherences, time evolution operators,
+            and lifetimes.
     """
     with torch.no_grad():
+        # get the number of sites from the size of the hamiltonian
+        lifetimes = None
 
-        n_sites=Hfull.shape[-1] # get the number of sites from the size of the hamiltonian
-        lifetimes=None
-        
-        #run NISE without T correction
-        if averaging_method.lower() in ["boltzmann","interpolated"]:
-            population, coherence ,U= NISE_propagate(Hfull.to(device),realizations,psi0.to(device),total_time,dt,T,
-                                                     save_Interval=save_Interval,T_correction="None",
-                                                     device=device,saveU=True,saveCoherence=True)
-            lifetimes=estimate_lifetime(U, dt*save_Interval)
-            lifetimes=lifetimes*lifetime_factor
-        else:
-            lifetimes=None
-        
-        population, coherence ,U= NISE_propagate(Hfull.to(device),realizations,psi0.to(device),total_time,dt,T,
-                                                 save_Interval=save_Interval,T_correction=T_correction,
-                                                 device=device,saveU=saveU,saveCoherence=True) 
-            
-        population_averaged,coherence_ave=averaging(population,averaging_method,lifetimes=lifetimes,
-                                                    step=dt,coherence=coherence)
+        # run NISE without T correction
+        # Run NISE without T correction if necessary
+        if averaging_method.lower() in ["boltzmann", "interpolated"]:
+            population, coherence, u = nise_propagate(
+                hfull.to(device), realizations, psi0.to(device), total_time,
+                dt, temperature, save_interval=save_interval,
+                t_correction="None", device=device, save_u=True,
+                save_coherence=True
+            )
+            lifetimes = (estimate_lifetime(u, dt * save_interval) *
+                         lifetime_factor)
 
-        return population_averaged,coherence_ave,U, lifetimes
+        population, coherence, u = nise_propagate(
+            hfull.to(device), realizations, psi0.to(device), total_time, dt,
+            temperature, save_interval=save_interval,
+            t_correction=t_correction, device=device, save_u=save_u,
+            save_coherence=True, mlnise_inputs=mlnise_inputs
+        )
+
+        population_averaged, coherence_averaged = averaging(
+            population, averaging_method, lifetimes=lifetimes, step=dt,
+            coherence=coherence
+        )
+
+        if not save_coherence:
+            coherence_averaged = None
+        return population_averaged, coherence_averaged, u, lifetimes
 
 
-
-        
-
-def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_Interval=1,
-               T_correction="None",mode="Population",mu=None, aborption_padding=10000,
-               averaging_method="Standard", lifetime_factor=5,maxreps=100000,MLNISE_inputs=None,
-               device="cpu"):
+def run_nise(h, realizations, total_time, dt, initial_state, temperature,
+             spectral_funcs, save_interval=1, t_correction="None",
+             mode="Population", mu=None, absorption_padding=10000,
+             averaging_method="standard", lifetime_factor=5, max_reps=100000,
+             mlnise_inputs=None, device="cpu"):
     """
-    Main function to run NISE simulations for population dynamics or absorption spectra.
-    
+    Main function to run NISE simulations for population dynamics or
+    absorption spectra.
+
     Args:
-        H (torch.Tensor): Hamiltonian of the system over time or single Hamiltonian with noise.
+        h (torch.Tensor): Hamiltonian of the system over time or single
+            Hamiltonian with noise.
         realizations (int): Number of noise realizations to simulate.
         total_time (float): Total time for the simulation.
         dt (float): Time step size.
-        initialState (torch.Tensor): Initial state of the system.
-        T (float): Temperature for thermal corrections.
-        spectral_funcs (callable): Spectral density functions for noise generation.
-        save_Interval (int, optional): Interval for saving results. Defaults to 1.
-        T_correction (str, optional): Method for thermal correction ("None", "TNISE", "MLNISE"). Defaults to "None".
-        mode (str, optional): Simulation mode ("Population" or "Absorption"). Defaults to "Population".
-        mu (torch.Tensor, optional): Dipole moments for absorption calculations. Defaults to None.
-        aborption_padding (int, optional): Padding for absorption spectra calculation. Defaults to 10000.
-        averaging_method (str, optional): Method for averaging results ("Standard", "Boltzmann", "Interpolated"). Defaults to "Standard".
-        lifetime_factor (int, optional): Factor to scale estimated lifetimes. Defaults to 5.
-        maxreps (int, optional): Maximum number of realizations per chunk. Defaults to 100000.
-        MLNISE_inputs (tuple, optional): Inputs for MLNISE model. Defaults to None.
-        device (str, optional): Device for computation ("cpu" or "cuda"). Defaults to "cpu".
-    
+        initial_state (torch.Tensor): Initial state of the system.
+        temperature (float): Temperature for thermal corrections.
+        spectral_funcs (list(callable)): Spectral density functions for noise
+            generation.
+        save_interval (int, optional): Interval for saving results.
+            Defaults to 1.
+        t_correction (str, optional): Method for thermal correction
+            ("None", "TNISE", "MLNISE"). Defaults to "None".
+        mode (str, optional): Simulation mode ("Population" or "Absorption").
+            Defaults to "Population".
+        mu (torch.Tensor, optional): Dipole moments for absorption
+            calculations. Defaults to None.
+        absorption_padding (int, optional): Padding for absorption spectra
+            calculation. Defaults to 10000.
+        averaging_method (str, optional): Method for averaging results
+            ("standard", "boltzmann", "interpolated"). Defaults to "standard".
+        lifetime_factor (int, optional): Factor to scale estimated lifetimes.
+            Defaults to 5.
+        max_reps (int, optional): Maximum number of realizations per chunk.
+            Defaults to 100000.
+        mlnise_inputs (tuple, optional): Inputs for MLNISE model. Defaults to
+            None.
+        device (str, optional): Device for computation ("cpu" or "cuda").
+            Defaults to "cpu".
+
     Returns:
-        tuple: Depending on mode, returns either (np.ndarray, np.ndarray) for absorption spectrum and frequency axis,
-               or (torch.Tensor, torch.Tensor) for averaged populations and time axis.
-    """   
+        tuple: Depending on mode, returns either (np.ndarray, np.ndarray) for
+            absorption spectrum and frequency axis, or
+            (torch.Tensor, torch.Tensor) for averaged populations and time
+            axis.
+    """
     total_steps = int((total_time + dt) / dt)
-    save_steps  = int((total_time + dt*save_Interval) / (dt*save_Interval))
-    n_state = H.shape[-1] #H_0.shape[1] if time_dependent_H else H_0.shape[0]
+    save_steps = int((total_time + dt * save_interval) / (dt * save_interval))
+    n_states = h.shape[-1]
+    time_dependent_h = len(h.shape) >= 3
     window=1
-    time_dependent_H= len(H.shape)>=3
-    avg_absorb_time = None
-    x_axis = None
-    absorb_f = None
-    avg_output = None
-    if time_dependent_H:
-        trajectory_steps = H.shape[0]
+
+    if time_dependent_h:
+        trajectory_steps = h.shape[0]
         if realizations > 1:
             window = int((trajectory_steps - total_steps) / (realizations - 1))
-            print(f"window is {window * dt} {torchnise.units.current_t_unit}")
+            print(f"window is {window * dt} {units.current_t_unit}")
 
-    def generate_Hfull_chunk(chunk_size, start_index=0,window=1):
-        if time_dependent_H:
-            chunk_Hfull = torch.zeros((chunk_size, total_steps, n_state, n_state))
+    def generate_hfull_chunk(chunk_size, start_index=0, window=1):
+        if time_dependent_h:
+            chunk_hfull = torch.zeros((chunk_size, total_steps, n_states, n_states))
             for j in range(chunk_size):
-                H_index = start_index + j
-                chunk_Hfull[j, :, :, :] = torch.tensor(H[window * H_index:window * H_index + total_steps, :, :])
-            return chunk_Hfull 
-        else:
-            chunk_Hfull = torch.zeros((chunk_size, total_steps, n_state, n_state))
-            print("generating noise")
-            mynoise = gen_noise(spectral_funcs,dt,(chunk_size,total_steps,n_state))    
-            print("building H")
-            chunk_Hfull[:] = H
-            for i in range(n_state):
-                chunk_Hfull[:, :, i, i] += mynoise[:, :, i]
-            return chunk_Hfull
+                h_index = start_index + j
+                chunk_hfull[j, :, :, :] = torch.tensor(
+                    h[window * h_index:window * h_index + total_steps, :, :])
+            return chunk_hfull
+        chunk_hfull = torch.zeros((chunk_size, total_steps, n_states,
+                                   n_states))
+        print("Generating noise")
+        noise = gen_noise(spectral_funcs, dt, (chunk_size, total_steps,
+                                               n_states))
+        print("Building H")
+        chunk_hfull[:] = h
+        for i in range(n_states):
+            chunk_hfull[:, :, i, i] += noise[:, :, i]
+        return chunk_hfull
 
-    if realizations > maxreps:
-        num_chunks = (realizations + maxreps - 1) // maxreps  # This ensures rounding up
-        print("splitting calculation into ", num_chunks, " chunks")
-    else:
-        num_chunks=1
-    chunk_size = (realizations + num_chunks - 1) // num_chunks  # This ensures each chunk is not greater than reals
+    num_chunks = ((realizations + max_reps - 1) // max_reps
+                  if realizations > max_reps else 1)
+    print(f"Splitting calculation into {num_chunks} chunks")
+    chunk_size = (realizations + num_chunks - 1) // num_chunks
 
-    if mode.lower()=="population" and T_correction.lower() in ["mlnise","tnise"] and averaging_method in ["interpolated","boltzmann"]:
-        all_coherence = torch.zeros(num_chunks,save_steps,n_state,n_state)
-        all_lifetimes = torch.zeros(num_chunks,n_state)
-    elif mode.lower() =="absorption":
-        all_absorb_time=[]
-    saveU = mode.lower() =="absorption"
-
+    save_u = mode.lower() == "absorption"
     weights = []
-    all_output = torch.zeros(num_chunks,save_steps,n_state)
+    all_output = torch.zeros(num_chunks, save_steps, n_states)
+
+    if mode.lower() == (
+            "population" and t_correction.lower() in ["mlnise", "tnise"] and
+            averaging_method in ["interpolated", "boltzmann"]):
+        all_coherence = torch.zeros(num_chunks, save_steps, n_states, n_states)
+        all_lifetimes = torch.zeros(num_chunks, n_states)
+    elif mode.lower() == "absorption":
+        all_absorb_time = []
+
     for i in range(0, realizations, chunk_size):
         chunk_reps = min(chunk_size, realizations - i)
-        weights.append(chunk_reps)      
-        chunk_Hfull = generate_Hfull_chunk(chunk_reps, start_index=i,window=window)
-        print("running calculation")
-        population_averaged,coherence_ave,U, lifetimes = NISE_averaging(chunk_Hfull, chunk_reps,initialState,total_time,
-                                                                        dt,T,save_Interval=save_Interval,T_correction=T_correction,
-                                                                        averaging_method=averaging_method,lifetime_factor=lifetime_factor,
-                                                                        device=device,saveU=saveU,saveCoherence=True,MLNISE_inputs=None)
+        weights.append(chunk_reps)
+        chunk_hfull = generate_hfull_chunk(chunk_reps, start_index=i,
+                                           window=window)
+        print("Running calculation")
+        pop_avg, coherence_avg, u, lifetimes = nise_averaging(
+            chunk_hfull, chunk_reps, initial_state, total_time, dt,
+            temperature, save_interval=save_interval,
+            t_correction=t_correction, averaging_method=averaging_method,
+            lifetime_factor=lifetime_factor, device=device, save_u=save_u,
+            save_coherence=True, mlnise_inputs=mlnise_inputs
+        )
 
-        if mode.lower() =="population" and T_correction.lower() in ["mlnise","tnise"] and averaging_method in ["interpolated","boltzmann"]:
-            all_coherence[i//chunk_size,:,:,:]= coherence_ave
-            all_lifetimes[i//chunk_size,:] = lifetimes
+        if mode.lower() == (
+                "population" and t_correction.lower() in ["mlnise", "tnise"]
+                and averaging_method in ["interpolated", "boltzmann"]):
+            all_coherence[i // chunk_size, :, :, :] = coherence_avg
+            all_lifetimes[i // chunk_size, :] = lifetimes
         elif mode.lower() == "absorption":
-            absorb_time=absorption_time_domain(U,mu)
+            absorb_time = absorption_time_domain(u, mu)
             all_absorb_time.append(absorb_time)
-        all_output[i//chunk_size,:,:]=population_averaged
-    if mode.lower() =="population" and T_correction.lower() in ["mlnise","tnise"] and averaging_method in ["interpolated","boltzmann"]:
-        lifetimes=torch.mean(all_lifetimes,dim=0)
-        print(f"lifetimes multipiled by lieftime factor are {lifetimes}")
-        avg_output,_ = averaging(all_output,averaging_method,lifetimes=lifetimes,step=dt,coherence=all_coherence,weight=torch.tensor(weights,dtype=torch.float))#np.average(all_oldave, axis=0, weights=weights)
-    else:
-        lifetimes=None
-        avg_output = np.average(all_output, axis=0, weights=weights)
-    
+        all_output[i // chunk_size, :, :] = pop_avg
 
-    if mode.lower() =="absorption":
+    if mode.lower() == (
+            "population" and t_correction.lower() in ["mlnise", "tnise"] and
+            averaging_method in ["interpolated", "boltzmann"]):
+        lifetimes = torch.mean(all_lifetimes, dim=0)
+        print(f"lifetimes multiplied by lifetime factor are {lifetimes}")
+        avg_output, _ = averaging(all_output, averaging_method,
+                                  lifetimes=lifetimes, step=dt,
+                                  coherence=all_coherence,
+                                  weight=torch.tensor(weights,
+                                                      dtype=torch.float))
+    else:
+        lifetimes = None
+        avg_output = np.average(all_output, axis=0, weights=weights)
+
+    if mode.lower() == "absorption":
         avg_absorb_time = np.average(all_absorb_time, axis=0, weights=weights)
-        pad=int(aborption_padding/(dt*torchnise.units.t_unit))
+        pad = int(absorption_padding / (dt * units.t_unit))
         absorb_config = {
-            "total_time":total_time,
+            "total_time": total_time,
             "dt": dt,
             "pad": pad,
             "smoothdamp": True,
@@ -339,88 +429,112 @@ def run_NISE(H,realizations, total_time,dt, initialState,T, spectral_funcs,save_
         }
         absorb_f, x_axis = absorb_time_to_freq(avg_absorb_time, absorb_config)
         return absorb_f, x_axis
-    else:
-        return avg_output, torch.linspace(0,total_time,avg_output.shape[0])
-    
 
-   
-class MLNISE_model(nn.Module):
+    return avg_output, torch.linspace(0, total_time, avg_output.shape[0])
+
+
+class MLNISEModel(nn.Module):
     """
-    Predict correction factors for non-adiabatic coupling based on input features.
+    Neural network model to predict correction factors for non-adiabatic
+    coupling based on input features.
 
-    Args:
-        MLNISE_inputs (tuple): Inputs for MLNISE model.
-        DE (torch.Tensor): Energy differences between states.
-        kBT (float): Thermal energy (k_B * T).
-        phiB (torch.Tensor): Wavefunction in the eigenbasis.
-        S (torch.Tensor): Non-adiabatic coupling matrix.
-        jj (int): Index of the target state.
-        ii (int): Index of the current state.
-        realizations (int): Number of noise realizations.
-        device (str, optional): Device for computation ("cpu" or "cuda"). Defaults to "cpu".
-
-    Returns:
-        torch.Tensor: Correction factor for the non-adiabatic coupling matrix.
+    Attributes:
+        fc1 (nn.Linear): First fully connected layer.
+        fc2 (nn.Linear): Second fully connected layer.
+        fc3 (nn.Linear): Third fully connected layer.
+        fc4 (nn.Linear): Output fully connected layer.
     """
-    #init contains all the free parameters of our method. In case of the neural networks its the layers of the neural networks
+
     def __init__(self):
-        super(MLNISE_model, self).__init__()
+        super().__init__()
         self.fc1 = nn.Linear(8, 75)
         self.fc2 = nn.Linear(75, 75)
         self.fc3 = nn.Linear(75, 75)
         self.fc4 = nn.Linear(75, 1)
-    def forward(self,MLNISE_inputs,DE,kBT,phiB,S,jj,ii,realizations,device="cpu"):
-        #Initialize the input Vector for the neural network
-        input_Vec=torch.zeros(realizations,8,device=device)
 
-        #Currently it contains the following features:
+    def forward(self, mlnise_inputs, de, kbt, phi_b, s, jj, ii, realizations,
+                device="cpu"):
+        """
+        Forward pass through the MLNISE model to calculate correction factors.
 
-        #Feature 0  is the energy difference
-        input_Vec[:,0]=DE
+        Args:
+            mlnise_inputs (tuple): Inputs for the MLNISE model, containing
+                reorganization energy and correlation time.
+            de (torch.Tensor): Energy differences between states.
+            kbt (float): Thermal energy (k_B * T).
+            phi_b (torch.Tensor): Wavefunction in the eigenbasis.
+            s (torch.Tensor): Non-adiabatic coupling matrix.
+            jj (int): Index of the target state.
+            ii (int): Index of the current state.
+            realizations (int): Number of noise realizations.
+            device (str, optional): Device for computation ("cpu" or "cuda").
+                Defaults to "cpu".
 
-        #Feature 1 is the current population ratio between eigenstate i and j
+        Returns:
+            torch.Tensor: Correction factor for the non-adiabatic coupling
+                matrix.
+        """
+        # Initialize the input vector for the neural network
+        input_vec = torch.zeros(realizations, 8, device=device)
 
-        #this first part checks if any ratio (from any of the batches) is bigger than 100x to avoid exploding gradients. Those ratios are then set to 100
+        # Feature 0: Energy difference
+        input_vec[:, 0] = de
 
-        if ((phiB.real[:,ii]**2+phiB.imag[:,ii]**2)<0.01*(phiB.real[:,jj]**2+phiB.imag[:,jj]**2)).any():
-            mask_input_vec =((phiB.real[:,ii]**2+phiB.imag[:,ii]**2)>0.01*(phiB.real[:,jj]**2+phiB.imag[:,jj]**2))
-            mask_input_vec= mask_input_vec.squeeze()
-            input_Vec[:,1]=100
-            input_Vec[mask_input_vec,1]=((phiB.real[mask_input_vec,jj]**2+phiB.imag[mask_input_vec,jj]**2)/(phiB.real[mask_input_vec,ii]**2+phiB.imag[mask_input_vec,ii]**2)).squeeze()
+        # Feature 1: Current population ratio between eigenstates i and j
+        self._calculate_population_ratio(input_vec, phi_b, ii, jj)
 
+        # Feature 2: Original value of the non-adiabatic coupling
+        input_vec[:, 2] = s[:, jj, ii]
 
-        # if all ratios are <100 simply use the ratios
+        # Feature 3: Temperature
+        input_vec[:, 3] = kbt
 
+        # Feature 4: Reorganization energy
+        input_vec[:, 4] = mlnise_inputs[0]
+
+        # Feature 5: Correlation time
+        input_vec[:, 5] = mlnise_inputs[1]
+
+        # Feature 6: Placeholder for future use (currently inactive)
+        # input_vec[:, 6] = t * dt
+
+        # Feature 7: Exponential of the energy difference divided by
+        #thermal energy
+        input_vec[:, 7] = torch.exp(de / kbt)
+
+        # Apply the neural network layers
+        res1 = F.elu(self.fc1(input_vec))
+        res2 = F.elu(self.fc2(res1))
+        res3 = F.elu(self.fc3(res2))
+        correction = F.elu(self.fc4(res3)) + 1
+
+        return correction.squeeze()
+
+    @staticmethod
+    def _calculate_population_ratio(input_vec, phi_b, ii, jj):
+        """
+        Calculate the population ratio feature for the input vector.
+
+        Args:
+            input_vec (torch.Tensor): Input vector for the neural network.
+            phi_b (torch.Tensor): Wavefunction in the eigenbasis.
+            ii (int): Index of the current state.
+            jj (int): Index of the target state.
+        """
+        # Calculate the population ratio and avoid exploding gradients
+        # by capping the ratio at 100
+        if ((phi_b.real[:, ii] ** 2 + phi_b.imag[:, ii] ** 2) <
+            0.01 * (phi_b.real[:, jj] ** 2 + phi_b.imag[:, jj] ** 2)).any():
+
+            mask = ((phi_b.real[:, ii] ** 2 + phi_b.imag[:, ii] ** 2) >
+                0.01 * (phi_b.real[:, jj] ** 2 + phi_b.imag[:, jj] ** 2))
+            input_vec[:, 1] = 100
+            input_vec[mask, 1] = ((phi_b.real[mask, jj] ** 2 +
+                                   phi_b.imag[mask, jj] ** 2) /
+                                  (phi_b.real[mask, ii] ** 2 +
+                                   phi_b.imag[mask, ii] ** 2)).squeeze()
         else:
-            input_Vec[:,1]=((phiB.real[:,jj]**2+phiB.imag[:,jj]**2)/(phiB.real[:,ii]**2+phiB.imag[:,ii]**2)).squeeze()
-        #Feature 2 is the original value of the Nonadiabatic coupling
-        input_Vec[:,2]=S[:,jj,ii]
-        #Feature 3 is the Temperature
-        input_Vec[:,3]=kBT
-        #Feature 4 is the reorganization energy
-        Er=MLNISE_inputs[0]
-        input_Vec[:,4]=Er
-        #Feature 5 is the correlation time
-        cortim=MLNISE_inputs[1]
-        input_Vec[:,5]=cortim
-        #Feature 6 is the time since the excitation currently inactaive
-        #input_Vec[:,6]=t*dt
-        input_Vec[:,7]=torch.exp(DE/kBT)
-        #Note set of input features will change with ongoing development. Reorganizationenergy and correlation time can not be used if the different sites are coupled to baths with
-        #different features
-
-        #Apply the neural network parameters
-        res1=self.fc1(input_Vec)
-        res1=F.elu(res1)
-
-        res2=self.fc2(res1)
-        res2=F.elu(res2)
-
-
-        res3=self.fc3(res2)
-        res3=F.elu(res3)
-
-        correction=self.fc4(res3)
-        correction=F.elu(correction)+1
-        correction=correction.squeeze()
-        return correction
+            input_vec[:, 1] = ((phi_b.real[:, jj] ** 2 +
+                                phi_b.imag[:, jj] ** 2) /
+                               (phi_b.real[:, ii] ** 2 +
+                                phi_b.imag[:, ii] ** 2)).squeeze()
