@@ -5,10 +5,6 @@
 *.rst
 *.npy
 *.pt
-conf.py
-.pylintrc
-Makefile
-make.bat
 
 
 # Byte-compiled / optimized / DLL files
@@ -83,6 +79,7 @@ instance/
 # Sphinx documentation
 docs/_build/
 doc/_build/
+_build/
 
 # PyBuilder
 target/
