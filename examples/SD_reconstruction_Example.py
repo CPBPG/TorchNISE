@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from torchnise.fft_noise_gen import noise_algorithm
-from torchnise.sd_from_noise import SD_Reconstruct_FFT, get_auto, sd_reconstruct_superresolution
+from torchnise.spectral_density_generation import sd_reconstruct_fft, get_auto, sd_reconstruct_superresolution
 from torchnise.example_spectral_functions import spectral_drude_lorentz_heom
 import functools
 import torchnise.units as units
@@ -51,7 +51,7 @@ for total_time in (100_000,1_000_000):
 for i in range (len(autos)):
     auto=autos[i]
     for damping in ["exp","gauss","step"]:
-        J_new, x_axis ,auto_damp = SD_Reconstruct_FFT(auto,dt,T,damping_type=damping,cutoff=cutoff,rescale=False)
+        J_new, x_axis ,auto_damp = sd_reconstruct_fft(auto,dt,T,damping_type=damping,cutoff=cutoff,rescale=False)
         S=spectralfunc(x_axis/units.hbar)
         SD=S/(2*np.pi*units.k*T)*x_axis/units.hbar
         plt.plot(x_axis*units.cm_to_eV,J_new,label=f"{damping}")
