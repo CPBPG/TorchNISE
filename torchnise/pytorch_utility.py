@@ -1,11 +1,14 @@
-import numpy as np
-import torch
+"""
+This file contains some utility functions
+"""
 import os
 import uuid
 import weakref
 import tempfile
 import warnings
 import glob
+import numpy as np
+import torch
 
 # Utility Functions
 def renorm(phi: torch.Tensor, eps: float = 1e-8, dim: int = -1) -> torch.Tensor:
@@ -23,7 +26,8 @@ def renorm(phi: torch.Tensor, eps: float = 1e-8, dim: int = -1) -> torch.Tensor:
     # Calculate the inner product along the specified dimension
     inner_product = torch.sum(phi.conj() * phi, dim=dim, keepdim=True)
 
-    # Create a mask where the real part of the inner product is greater than the threshold
+    # Create a mask where the real part of the inner product is greater than
+    # the threshold
     mask = inner_product.real > eps
 
     # Calculate the square root of the inner product for renormalization
@@ -37,17 +41,20 @@ def renorm(phi: torch.Tensor, eps: float = 1e-8, dim: int = -1) -> torch.Tensor:
     return phi
 
 
-def matrix_logh(A: torch.Tensor, dim1: int = -1, dim2: int = -2, epsilon: float = 1e-5) -> torch.Tensor:
+def matrix_logh(A: torch.Tensor, dim1: int = -1, dim2: int = -2,
+                epsilon: float = 1e-5) -> torch.Tensor:
     """
-    Compute the Hermitian matrix logarithm of a square matrix or a batch of square matrices.
-    It is the unique hermitian matrix logarithm see
-    https://math.stackexchange.com/questions/4474139/logarithm-of-a-positive-definite-matrix
+    Compute the Hermitian matrix logarithm of a square matrix or a batch of 
+    square matrices.It is the unique hermitian matrix logarithm see
+    math.stackexchange.com/questions/4474139/logarithm-of-a-positive-definite-matrix
 
     Args:
-        A (torch.Tensor): Input tensor with square matrices in the last two dimensions.
+        A (torch.Tensor): Input tensor with square matrices in the last two
+            dimensions.
         dim1 (int): First dimension of the square matrices. Default is -1.
         dim2 (int): Second dimension of the square matrices. Default is -2.
-        epsilon (float): Small value to add to the diagonal to avoid numerical issues.
+        epsilon (float): Small value to add to the diagonal to avoid numerical
+            issues.
 
     Returns:
         torch.Tensor: Matrix logarithm of the input tensor.
@@ -58,19 +65,23 @@ def matrix_logh(A: torch.Tensor, dim1: int = -1, dim2: int = -2, epsilon: float 
     if dim1 == dim2:
         raise ValueError("dim1 and dim2 cannot be the same for batch trace")
     if A.shape[dim1] != A.shape[dim2]:
-        raise ValueError(f"The input tensor must have square matrices in the specified dimensions. "
-                         f"Dimension {dim1} has size {A.shape[dim1]} and dimension {dim2} has size {A.shape[dim2]}.")
+        raise ValueError(f"The input tensor must have square "
+                         "matrices in the specified dimensions. "
+                         f"Dimension {dim1} has size {A.shape[dim1]} and "
+                         f"dimension {dim2} has size {A.shape[dim2]}.")
 
     if dim1 != -1 or dim2 != -2:
         A = A.transpose(dim1, -1).transpose(dim2, -2)
 
     n = A.shape[-1]
-    identity = torch.eye(n, dtype=A.dtype, device=A.device).view(*([1] * (A.dim() - 2)), n, n)
+    identity = torch.eye(n, dtype=A.dtype,
+                         device=A.device).view(*([1] * (A.dim() - 2)), n, n)
     A = A + epsilon * identity
 
     e, v = torch.linalg.eigh(A)
     e = e.to(dtype=v.dtype)
-    log_A = torch.matmul(torch.matmul(v, torch.diag_embed(torch.log(e))), v.conj().transpose(-2, -1))
+    log_A = torch.matmul(torch.matmul(v,
+                torch.diag_embed(torch.log(e))), v.conj().transpose(-2, -1))
 
     return log_A
 
@@ -93,8 +104,10 @@ def batch_trace(A: torch.Tensor, dim1: int = -1, dim2: int = -2) -> torch.Tensor
     if dim1 == dim2:
         raise ValueError("dim1 and dim2 cannot be the same for batch trace")
     if A.shape[dim1] != A.shape[dim2]:
-        raise ValueError(f"The tensor does not have the same dimension on the trace dimensions. "
-                         f"Dimension {dim1} has size {A.shape[dim1]} and dimension {dim2} has size {A.shape[dim2]}.")
+        raise ValueError(f"The tensor does not have the same dimension on the "
+                         "trace dimensions. "
+                         f"Dimension {dim1} has size {A.shape[dim1]} and "
+                         f"dimension {dim2} has size {A.shape[dim2]}.")
 
     return torch.diagonal(A, offset=0, dim1=dim1, dim2=dim2).sum(dim=-1)
 
@@ -111,10 +124,10 @@ def tensor_to_mmap(tensor) -> torch.Tensor:
 
     Returns:
         torch.Tensor: Memory-mapped tensor.
-    """   
+    """
     if is_memory_mapped(tensor):
         return tensor
-            
+
 
     # Create a tensor using the storage
     mmap_tensor = create_empty_mmap_tensor(shape=tensor.shape, dtype=tensor.dtype)
@@ -136,18 +149,19 @@ def create_empty_mmap_tensor(shape, dtype=torch.float32) -> torch.Tensor:
 
     Returns:
         torch.Tensor: Memory-mapped tensor.
-    """   
+    """
 
-        
+
     # Generate a unique filename in a temporary directory
     temp_dir = tempfile.gettempdir()
     filename = os.path.join(temp_dir, f'{uuid.uuid4().hex}.bin')
-    
+
     # Calculate the number of bytes needed
     nbytes= torch.Size(shape).numel() * torch.tensor([], dtype=dtype).element_size()
-    
+
     # Create untyped storage from the file
-    storage = torch.storage.UntypedStorage.from_file(filename, shared=True, nbytes=nbytes)
+    storage = torch.storage.UntypedStorage.from_file(filename, shared=True,
+                                                     nbytes=nbytes)
 
     # Create a tensor using the storage
     mmap_tensor = torch.tensor(storage,dtype=dtype, device="cpu").view(shape)
@@ -169,7 +183,7 @@ def delete_file(filename: str) -> None:
             os.remove(filename)
         except OSError as e:
             print(f"Error deleting file {filename}: {e}")
-            
+
 
 def is_memory_mapped(tensor) -> bool:
     """
@@ -221,7 +235,8 @@ def golden_section_search(func, a, b, tol):
                      the interval length is less than this value.
 
     Returns:
-        float: The point at which the function has its minimum within the interval [a, b].
+        float: The point at which the function has its minimum within the
+        interval [a, b].
     """
     golden_ratio = (1 + 5 ** 0.5) / 2
 
@@ -261,7 +276,8 @@ def smooth_damp_to_zero(f_init, start, end):
         return x
 
     damprange = np.arange(end - start, dtype=float)[::-1] / (end - start)
-    f[start:end] = f[start:end] * expdamp_helper(damprange) / (expdamp_helper(damprange) + expdamp_helper(1 - damprange))
+    f[start:end] = (f[start:end] * expdamp_helper(damprange) /
+                    (expdamp_helper(damprange) + expdamp_helper(1 - damprange)))
     return f
 
 """
