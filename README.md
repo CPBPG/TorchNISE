@@ -16,7 +16,7 @@ Quantum Dynamics" (add a link here) and "[Machine-learned correction to ensemble
 - Averaging - Different Averaging procedures for the thermalized variants as described in "Spectral Densities, Structured Noise and Ensemble Averaging within Open
 Quantum Dynamics".
 
-- Fully differentiable - As a pytorch implementation the implementation is fully differentiable via automatic differentiation, i.E. gradients can be automatically calculated throughout all calculations. This can be used to train MLNISE models, but many other applications are thinkable. One could use this e.g. to get the gradient of the error between the calculated and an experimental spectral density with respect to the average Hamiltonian. One could then optimize the Hamiltonian so that it matches an experimental spectral density.
+- Fully differentiable - As a pytorch implementation, the implementation is fully differentiable via automatic differentiation: i.E. gradients can be automatically calculated throughout all calculations. This can be used to train MLNISE models, but many other applications are thinkable. One could use this e.g. to get the gradient of the error between the calculated and an experimental spectral density with respect to the average Hamiltonian. One could then optimize the Hamiltonian so that it matches an experimental spectral density.
 
 - GPU support - As most of the code is build on top of the pytorch package, which can delegate calculations to the GPU, TorchNISE can also be run on the GPU. The GPU calculations are currently mostly bottlenecked by the PyTorch implementation of eigh. In our testing - with our hardware - we only found GPU acceleration to be useful for very large Hamiltonians for NISE and TNISE. 
 
