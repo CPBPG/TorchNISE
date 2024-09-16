@@ -106,6 +106,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
     #our population dynamics
     for t in tqdm.tqdm(range(1,total_steps)):
         #grab the t'th timestep
+        h = hfull[:, t, :, :].clone().to(device=device)
         #[all realizations : t'th timestep  : all sites : all sites]
         e, v_eps = torch.linalg.eigh(h)
         c = v_eps
