@@ -48,6 +48,11 @@ It is generated with sphinx based on the doc strings which are partially AI gene
 
 The current state of the code is not stable and will be continued to be updated
 
+## Licence
+
+Licenced under Creative Commons Attribution 4.0 International Public License. 
+We Request the Attributions to be in the form of citing the respective papers.
+
 ## Future plans
 
 - Include documented support for MLNISE training
