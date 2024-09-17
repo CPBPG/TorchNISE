@@ -51,6 +51,7 @@ The current state of the code is not stable and will be continued to be updated
 ## Licence
 
 Licenced under Creative Commons Attribution 4.0 International Public License. 
+That is, you can use this work in any way you want as long as you give Attribution to the original authors.
 We Request the Attributions to be in the form of citing the respective papers.
 
 ## Future plans
