@@ -277,7 +277,7 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
         )
 
         population_averaged, coherence_averaged = averaging(
-            population, averaging_method, lifetimes=lifetimes, step=dt,
+            population, averaging_method, lifetimes=lifetimes, step=dt*save_interval,
             coherence=coherence
         )
 
@@ -410,7 +410,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         lifetimes = torch.mean(all_lifetimes, dim=0)
         print(f"lifetimes multiplied by lifetime factor are {lifetimes}")
         avg_output, _ = averaging(all_output, averaging_method,
-                                  lifetimes=lifetimes, step=dt,
+                                  lifetimes=lifetimes, step=dt*save_interval,
                                   coherence=all_coherence,
                                   weight=torch.tensor(weights,
                                                       dtype=torch.float))

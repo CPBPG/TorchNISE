@@ -12,7 +12,7 @@ time_unit="fs"
 torchnise.units.set_units(e_unit=energy_unit,t_unit=time_unit)
 dt=1
 total_time=1000
-realizations=1000
+realizations=10000
 device="cpu" #"cuda" for GPU "cpu" for CPU
 if device=="cuda":
     torch.backends.cuda.preferred_linalg_library(backend="magma") #bottleneck for gpu calculations is torch.linalg.eigh which we found to be slightly faster with this backend
@@ -39,12 +39,12 @@ Averaging1='interpolated' #boltzmann standard or interpolated
 
 Mode2="Absorption"
 T_correction2='None'
-Averaging2="Standard"
+Averaging2="interpolated"
 dipole_moments=torch.tensor([[1,0,0],
                              [1,0,0]])
 
 population, xaxis_p = torchnise.nise.run_nise(H,realizations, total_time,dt, initialState,T, spectral_funcs,
-               t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device)
+               t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=10000)
 
 for i in range(n_sites):
     plt.plot(xaxis_p,population[:,i],label=f"site {i+1}")
@@ -56,7 +56,7 @@ plt.legend()
 plt.show()
 plt.close()
 
-absorption, xaxis_f = torchnise.nise.run_nise(H,realizations, total_time,dt, initialState,T, spectral_funcs,
+"""absorption, xaxis_f = torchnise.nise.run_nise(H,realizations, total_time,dt, initialState,T, spectral_funcs,
                t_correction=T_correction2,mode=Mode2,averaging_method=Averaging2,mu=dipole_moments, device=device)
 
 
@@ -66,3 +66,4 @@ plt.ylabel("absorption [a.u.]")
 plt.xlabel("frequency [cm$^-1$]")
 plt.show()
 plt.close()
+"""
