@@ -3,7 +3,28 @@ This file implements various spectral functions returning the power spectrum.
 """
 import numpy as np
 from torchnise import units
+from scipy.interpolate import interp1d
 
+
+def spectral_numerical(data,temperature):
+    """
+    Creates the poser spectrum from a numerical spectral density.
+
+    Args:
+        data (numpy.ndarray): numerical spectral density with data[:,0] frequencies
+                              and [:,0] the spectral density in the selected unit
+        temperature (float): Temperature.
+
+    Returns:
+        numpy.ndarray: Spectral density.
+    """
+    ww=np.concatenate([np.flip(-1*data[:,0]),data[1:,0]])
+    ww[ww==0]=1e-15
+    spectral_density=np.concatenate([np.flip(-1*data[:,1]),data[1:,1]])
+    power_spectrum=np.abs(spectral_density*(2*np.pi*units.K*temperature)/(ww))
+    spectralfunc = interp1d(ww,power_spectrum,kind="linear"
+                            ,bounds_error=False,fill_value=0)
+    return spectralfunc
 
 def spectral_drude(w, gamma, strength, temperature):
     """
@@ -18,9 +39,9 @@ def spectral_drude(w, gamma, strength, temperature):
     Returns:
         numpy.ndarray: Spectral density.
     """
-    spectral_density = (4 * gamma * strength * units.K * temperature /
+    power_spectrum = (4 * gamma * strength * units.K * temperature /
                         (w**2 + gamma**2))
-    return spectral_density
+    return power_spectrum
 
 
 def spectral_lorentz(w, wk, sk, temperature, gammak):
@@ -37,12 +58,12 @@ def spectral_lorentz(w, wk, sk, temperature, gammak):
     Returns:
         numpy.ndarray: Spectral density.
     """
-    spectral_density = 0
+    power_spectrum = 0
     for i, wk_i in enumerate(wk):
-        spectral_density += (units.HBAR * 4 * units.K * temperature * sk[i]
+        power_spectrum += (units.HBAR * 4 * units.K * temperature * sk[i]
                              * wk_i**3 * gammak /
                              ((wk_i**2 - w**2)**2 + (w**2 * gammak**2)))
-    return spectral_density
+    return power_spectrum
 
 
 def spectral_drude_lorentz(w, gamma, strength, wk, sk, temperature, gammak):
@@ -61,13 +82,13 @@ def spectral_drude_lorentz(w, gamma, strength, wk, sk, temperature, gammak):
     Returns:
         numpy.ndarray: Spectral density.
     """
-    spectral_density = (4 * gamma * strength * units.K * temperature /
+    power_spectrum = (4 * gamma * strength * units.K * temperature /
                         (w**2 + gamma**2))
     for i, wk_i in enumerate(wk):
-        spectral_density += (units.HBAR * 4 * units.K * temperature * sk[i] *
+        power_spectrum += (units.HBAR * 4 * units.K * temperature * sk[i] *
                              wk_i**3 * gammak /
                              ((wk_i**2 - w**2)**2 + (w**2 * gammak**2)))
-    return spectral_density
+    return power_spectrum
 
 
 def spectral_drude_lorentz_heom(w, omega_k, lambda_k, temperature, vk):
@@ -84,13 +105,13 @@ def spectral_drude_lorentz_heom(w, omega_k, lambda_k, temperature, vk):
     Returns:
         numpy.ndarray: Spectral density.
     """
-    spectral_density = 0
+    power_spectrum = 0
     for i, omega_k_i in enumerate(omega_k):
-        spectral_density += (2 * units.K * temperature * vk[i] * lambda_k[i] /
+        power_spectrum += (2 * units.K * temperature * vk[i] * lambda_k[i] /
                              ((omega_k_i - w)**2 + vk[i]**2))
-        spectral_density += (2 * units.K * temperature * vk[i] * lambda_k[i] /
+        power_spectrum += (2 * units.K * temperature * vk[i] * lambda_k[i] /
                              ((omega_k_i + w)**2 + vk[i]**2))
-    return spectral_density
+    return power_spectrum
 
 
 def spectral_log_normal(w, s_hr, sigma, wc, temperature):
@@ -107,11 +128,11 @@ def spectral_log_normal(w, s_hr, sigma, wc, temperature):
     Returns:
         numpy.ndarray: Spectral density.
     """
-    spectral_density = (np.sqrt(2 * np.pi) * units.K * temperature * s_hr *
+    power_spectrum = (np.sqrt(2 * np.pi) * units.K * temperature * s_hr *
                         units.HBAR / sigma *
                         np.exp(-(np.log(w / wc))**2 / (2 * sigma**2)))
-    spectral_density[np.isnan(spectral_density)] = 0
-    return spectral_density
+    power_spectrum[np.isnan(power_spectrum)] = 0
+    return power_spectrum
 
 
 def spectral_log_normal_lorentz(w, wk, sk, temperature, gammak, s_hr, sigma,
@@ -132,6 +153,6 @@ def spectral_log_normal_lorentz(w, wk, sk, temperature, gammak, s_hr, sigma,
     Returns:
         numpy.ndarray: Spectral density.
     """
-    spectral_density = spectral_lorentz(w, wk, sk, temperature, gammak)
-    spectral_density += spectral_log_normal(w, s_hr, sigma, wc, temperature)
-    return spectral_density
+    power_spectrum = spectral_lorentz(w, wk, sk, temperature, gammak)
+    power_spectrum += spectral_log_normal(w, s_hr, sigma, wc, temperature)
+    return power_spectrum

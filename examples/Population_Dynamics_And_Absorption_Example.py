@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import functools
-from torchnise.example_spectral_functions import spectral_drude_lorentz_heom
+from torchnise.spectral_functions import spectral_drude_lorentz_heom
 
 import torchnise
 

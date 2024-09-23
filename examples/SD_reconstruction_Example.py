@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 from torchnise.fft_noise_gen import noise_algorithm
 from torchnise.spectral_density_generation import sd_reconstruct_fft, get_auto, sd_reconstruct_superresolution
-from torchnise.example_spectral_functions import spectral_drude_lorentz_heom
+from torchnise.spectral_functions import spectral_drude_lorentz_heom
 import functools
 import torchnise.units as units
 
