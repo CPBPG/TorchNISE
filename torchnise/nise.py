@@ -287,10 +287,10 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
 
 
 def run_nise(h, realizations, total_time, dt, initial_state, temperature,
-             spectral_funcs, save_interval=1, t_correction="None",
-             mode="Population", mu=None, absorption_padding=10000,
-             averaging_method="standard", lifetime_factor=5, max_reps=100000,
-             mlnise_inputs=None, device="cpu"):
+             spectral_funcs, save_interval=1,save_u=False,save_u_file=None, 
+             t_correction="None", mode="Population", mu=None, 
+             absorption_padding=10000, averaging_method="standard", 
+             lifetime_factor=5, max_reps=100000, mlnise_inputs=None, device="cpu"):
     """
     Main function to run NISE simulations for population dynamics or
     absorption spectra.
@@ -307,6 +307,9 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             generation.
         save_interval (int, optional): Interval for saving results.
             Defaults to 1.
+        save_u (bool, optional): if the time_evolution operator should be saved
+            Defaults to False
+        save_u_file (str, optional): if not none, u will be saved to this file
         t_correction (str, optional): Method for thermal correction
             ("None", "TNISE", "MLNISE"). Defaults to "None".
         mode (str, optional): Simulation mode ("Population" or "Absorption").
@@ -368,9 +371,11 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
     print(f"Splitting calculation into {num_chunks} chunks")
     chunk_size = (realizations + num_chunks - 1) // num_chunks
 
-    save_u = mode.lower() == "absorption"
+    save_u = mode.lower() == "absorption" or save_u
     weights = []
     all_output = torch.zeros(num_chunks, save_steps, n_states)
+    if save_u:
+        all_u = torch.zeros((num_chunks, save_steps, n_states,n_states),dtype=torch.complex64)
 
     if mode.lower() == (
             "population" and t_correction.lower() in ["mlnise", "tnise"] and
@@ -402,7 +407,10 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         elif mode.lower() == "absorption":
             absorb_time = absorption_time_domain(u, mu)
             all_absorb_time.append(absorb_time)
+        if save_u:
+            all_u [i // chunk_size, :, :, :] = torch.mean(u, dim=0)
         all_output[i // chunk_size, :, :] = pop_avg
+
 
     if mode.lower() == (
             "population" and t_correction.lower() in ["mlnise", "tnise"] and
@@ -417,6 +425,8 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
     else:
         lifetimes = None
         avg_output = np.average(all_output, axis=0, weights=weights)
+    if save_u and save_u_file!=None:
+        torch.save(torch.mean(all_u,dim=0),save_u_file)
 
     if mode.lower() == "absorption":
         avg_absorb_time = np.average(all_absorb_time, axis=0, weights=weights)
