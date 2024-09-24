@@ -6,13 +6,13 @@ from torchnise.spectral_functions import spectral_drude_lorentz_heom, spectral_n
 
 import torchnise
 
-for i in range(20):
+for chunk in range(200):
     energy_unit="cm-1"
     time_unit="fs"
     torchnise.units.set_units(e_unit=energy_unit,t_unit=time_unit)
     dt=1
     total_time=100000
-    realizations=100
+    realizations=8
     device="cpu" #"cuda" for GPU "cpu" for CPU
     if device=="cuda":
         torch.backends.cuda.preferred_linalg_library(backend="magma") #bottleneck for gpu calculations is torch.linalg.eigh which we found to be slightly faster with this backend
@@ -69,8 +69,8 @@ for i in range(20):
 
 
     population, xaxis_p = torchnise.nise.run_nise(H,realizations, total_time,dt, initialState,T, spectral_funcs,
-                t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=5,save_interval=10,
-                save_u= True, save_u_file=f"examples/data/u_{i}.pt")
+                t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=8,save_interval=100,
+                save_u= True, save_u_file=f"examples/data/u_{chunk}.pt")
 
     lh_complex_pop=[0]*len(lh_complexes)
     for i in range(n_sites):
@@ -82,6 +82,8 @@ for i in range(20):
     plt.ylabel("population")
     plt.xlim([torch.min(xaxis_p),torch.max(xaxis_p)])
     plt.ylim([0,1])
+    
     plt.legend()
-    plt.show()
+    plt.savefig(f"examples/data/fig{i}.pdf")
+    #plt.show()
     plt.close()

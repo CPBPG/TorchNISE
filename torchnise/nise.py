@@ -374,8 +374,6 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
     save_u = mode.lower() == "absorption" or save_u
     weights = []
     all_output = torch.zeros(num_chunks, save_steps, n_states)
-    if save_u:
-        all_u = torch.zeros((num_chunks, save_steps, n_states,n_states),dtype=torch.complex64)
 
     if mode.lower() == (
             "population" and t_correction.lower() in ["mlnise", "tnise"] and
@@ -408,7 +406,13 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             absorb_time = absorption_time_domain(u, mu)
             all_absorb_time.append(absorb_time)
         if save_u:
-            all_u [i // chunk_size, :, :, :] = torch.mean(u, dim=0)
+            if save_u and save_u_file!=None:
+                if "." in save_u_file:
+                    name,ending=save_u_file.split(".")
+                else:
+                    name=save_u_file
+                    ending="pt"
+                torch.save(u,f"{name}_{i}.{ending}")
         all_output[i // chunk_size, :, :] = pop_avg
 
 
@@ -425,8 +429,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
     else:
         lifetimes = None
         avg_output = np.average(all_output, axis=0, weights=weights)
-    if save_u and save_u_file!=None:
-        torch.save(torch.mean(all_u,dim=0),save_u_file)
+    
 
     if mode.lower() == "absorption":
         avg_absorb_time = np.average(all_absorb_time, axis=0, weights=weights)
