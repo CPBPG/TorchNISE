@@ -148,3 +148,76 @@ def noise_algorithm(shape, dt, spectral_func, axis=-1, sample_dist=None,
         np.save(save_name, time_domain_noise)
 
     return time_domain_noise
+
+def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
+                    discard_half=True, save=False, save_name=None):
+    """
+    Generates time-correlated noise following the power spectrum provided in
+    spectral_func.
+    
+    Args:
+        shape (tuple): Shape of the output noise array.
+        dt (float): Time step size.
+        spectral_func (callable): Function that defines the power spectrum of
+            the noise.
+        axis (int, optional): The axis along which the noise should be
+            correlated. Default is -1 (last axis).
+        sample_dist (callable, optional): Function to generate an array of
+            random numbers for non-normal distribution.
+        discard_half (bool, optional): If True, generates noise for twice the
+            number of steps and discards the second half. Default is True.
+        save (bool, optional): If True, saves the generated noise array to a
+            file.
+        save_name (str, optional): Name of the file to save the noise array.
+            Required if save is True.
+    
+    Returns:
+        torch.tensor: Time-correlated noise with the specified shape.
+    """
+    # Get positive axis
+    axis = axis % len(shape)
+    steps = shape[axis]
+
+    if discard_half:
+        extended_shape = list(shape)
+        extended_shape[axis] = 2 * steps
+        shape = tuple(extended_shape)
+
+    # Generate white noise with the correct dimensions
+    if sample_dist:
+        noise_samples = sample_dist(shape)
+        # Rescale to zero mean and unit variance
+        white_noise = ((noise_samples - torch.mean(noise_samples)) /
+                       torch.std(noise_samples))
+    else:
+        white_noise = torch.random.normal(0, 1, size=shape)
+
+    # Fourier transform of the white noise along the steps axis
+    freq = (torch.fft.fft(white_noise, axis=axis) *
+            (1 / np.sqrt(dt * units.T_UNIT)))
+
+    # Frequencies associated with the FFT of white noise
+    freq_bins = torch.fft.fftfreq(shape[axis], dt * units.T_UNIT) * 2 * np.pi
+
+    # Envelope the frequencies with the spectral function
+    spectral_density = torch.sqrt(spectral_func(freq_bins))
+    reshaped_spectral_density = torch.reshape(
+                                           [1 if dim != axis else
+                                            len(spectral_density)
+                                            for dim in range(len(shape))])
+
+    freq_enveloped = reshaped_spectral_density * freq
+
+    # Inverse Fourier transform to obtain the time-domain noise
+    time_domain_noise = (torch.fft.ifft(freq_enveloped, axis=axis)).real
+
+    if discard_half:
+        slices = [slice(None)] * len(shape)
+        slices[axis] = slice(0, steps)
+        time_domain_noise = time_domain_noise[tuple(slices)]
+
+    # Save the noise array if required
+    if save and save_name:
+        torch.save(save_name, time_domain_noise)
+
+    return time_domain_noise
