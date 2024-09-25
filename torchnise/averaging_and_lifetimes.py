@@ -105,7 +105,7 @@ def estimate_lifetime(u_tensor, delta_t, method="oscillatory_fit_mae"):
     n = u_tensor.shape[2]
     timesteps = u_tensor.shape[1]
     
-    population = torch.zeros((timesteps,n), device=population.device, dtype=torch.float)
+    population = torch.zeros((timesteps,n), device=u_tensor.device, dtype=torch.float)
     for i in range(n):
         population[:,i] = torch.mean(torch.abs(u_tensor[:, :, i, i]) ** 2,
                                 dim=0).real
