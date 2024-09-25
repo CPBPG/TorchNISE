@@ -64,6 +64,8 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
     psloc = torch.zeros((realizations, total_steps_saved, n_sites),
                         device=device)
 
+    aranged_realizations=torch.arange(realizations)
+
     if save_coherence:
         coh_loc = torch.zeros((realizations, total_steps_saved, n_sites,
                                n_sites), device=device, dtype=torch.complex64)
@@ -116,7 +118,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         if t_correction.lower() in ["mlnise", "tnise"]:
             s = apply_t_correction(s, n_sites, realizations, device, e, eold,
                                    t_correction, kbt, mlnise_model,
-                                   mlnise_inputs, phi_b)
+                                   mlnise_inputs, phi_b,aranged_realizations)
         #Make the Time Evolution operator
         u = torch.diag_embed(torch.exp(-e[:, :] * factor)).bmm(
                                                 s.to(dtype=torch.complex64))
@@ -154,7 +156,8 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
     return psloc.cpu(), coh_loc, uloc
 
 def apply_t_correction(s, n_sites, realizations, device, e, eold,
-                       t_correction, kbt, mlnise_model, mlnise_inputs, phi_b):
+                       t_correction, kbt, mlnise_model, mlnise_inputs,
+                       phi_b,aranged_realizations):
     """
     Apply thermal corrections to the non-adiabatic coupling matrix.
 
@@ -197,21 +200,15 @@ def apply_t_correction(s, n_sites, realizations, device, e, eold,
                 correction = mlnise_model(mlnise_inputs, de, kbt, phi_b, s, jj,
                                           ii, realizations, device=device)
 
-            s[:, jj, ii] = s[:, jj, ii].clone() * correction
-            add_cd = s[:, jj, ii].clone() ** 2
+            s[:, jj, ii] = s[:, jj, ii] * correction
+            add_cd = s[:, jj, ii] ** 2
             add_cd[jj == kk] = 0
-            cd = cd.clone() + add_cd
+            cd = cd + add_cd
         #The renormalization procedure broken into smaller steps,
         #because previously some errors showed
         #should probably be simplified
-        norm = torch.abs(s[torch.arange(realizations), kk, ii].clone())
-        dummy1 = torch.ones(realizations, device=device)
-        dummy1[1 - cd > 0] = torch.sqrt(1 - cd[1 - cd > 0])
-        dummy2 = torch.zeros(realizations, device=device)
-        s_clone = s[torch.arange(realizations), kk, ii].clone()
-        dummy2[1 - cd > 0] = s_clone.clone()[1 - cd > 0] / norm[1 - cd > 0]
-        dummy3 = dummy1 * dummy2
-        s[1 - cd > 0, kk[1 - cd > 0], ii] = dummy3[1 - cd > 0]
+        norm = torch.abs(s[aranged_realizations, kk, ii])
+        s[1 - cd > 0, kk[1 - cd > 0], ii] = torch.sqrt(1 - cd[1 - cd > 0]) * s[1 - cd > 0,kk[1 - cd > 0],ii] / norm[1 - cd > 0]
         return s
 
 def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
