@@ -60,14 +60,14 @@ def gen_noise(spectral_funcs, dt, shape):
 
     if len(spectral_funcs) == 1:
         for i in range(n_sites):
-            noise[:, :, i] = torch.as_tensor(
-                noise_algorithm((reals, steps), dt, spectral_funcs[0], axis=1))
+            noise[:, :, i] = noise_algorithm_torch((reals, steps), dt, 
+                                                   spectral_funcs[0], axis=1)
         return noise
 
     if len(spectral_funcs) == n_sites:
         for i in range(n_sites):
-            noise[:, :, i] = torch.as_tensor(
-                noise_algorithm((reals, steps), dt, spectral_funcs[i], axis=1))
+            noise[:, :, i] = noise_algorithm_torch((reals, steps), dt, 
+                                                   spectral_funcs[i], axis=1)
         return noise
 
     raise ValueError(f"""
@@ -190,7 +190,7 @@ def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
         white_noise = ((noise_samples - torch.mean(noise_samples)) /
                        torch.std(noise_samples))
     else:
-        white_noise = torch.random.normal(0, 1, size=shape)
+        white_noise = torch.normal(0, 1, size=shape)
 
     # Fourier transform of the white noise along the steps axis
     freq = (torch.fft.fft(white_noise, axis=axis) *
@@ -201,7 +201,7 @@ def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
 
     # Envelope the frequencies with the spectral function
     spectral_density = torch.sqrt(spectral_func(freq_bins))
-    reshaped_spectral_density = torch.reshape(
+    reshaped_spectral_density = spectral_density.reshape(
                                            [1 if dim != axis else
                                             len(spectral_density)
                                             for dim in range(len(shape))])
