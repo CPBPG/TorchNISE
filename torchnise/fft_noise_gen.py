@@ -60,13 +60,13 @@ def gen_noise(spectral_funcs, dt, shape):
 
     if len(spectral_funcs) == 1:
         for i in range(n_sites):
-            noise[:, :, i] = torch.tensor(
+            noise[:, :, i] = torch.as_tensor(
                 noise_algorithm((reals, steps), dt, spectral_funcs[0], axis=1))
         return noise
 
     if len(spectral_funcs) == n_sites:
         for i in range(n_sites):
-            noise[:, :, i] = torch.tensor(
+            noise[:, :, i] = torch.as_tensor(
                 noise_algorithm((reals, steps), dt, spectral_funcs[i], axis=1))
         return noise
 
