@@ -9,6 +9,24 @@ import warnings
 import glob
 import numpy as np
 import torch
+import h5py
+
+numpy_to_torch_dtype_dict = {
+        np.bool_       : torch.bool,
+        np.uint8      : torch.uint8,
+        np.int8       : torch.int8,
+        np.int16      : torch.int16,
+        np.int32      : torch.int32,
+        np.int64      : torch.int64,
+        np.float16    : torch.float16,
+        np.float32    : torch.float32,
+        np.float64    : torch.float64,
+        np.complex64  : torch.complex64,
+        np.complex128 : torch.complex128
+    }
+
+    # Dict of torch dtype -> NumPy dtype
+torch_to_numpy_dtype_dict = {value : key for (key, value) in numpy_to_torch_dtype_dict.items()}
 
 # Utility Functions
 def renorm(phi: torch.Tensor, eps: float = 1e-8, dim: int = -1) -> torch.Tensor:
@@ -299,3 +317,337 @@ else:
     # Adding the method to the torch.Tensor class
     torch.Tensor.to_mmap = to_mmap
     #print("torch.Tensor.to_mmap has been added.")"""
+
+
+class H5Tensor:
+    def __init__(self, data=None, h5_filepath=None, requires_grad=False, dtype=torch.float,shape=None):
+        """
+        Flexible constructor for H5Tensor.
+        
+        Args:
+            data: Can be one of the following:
+                - A list, NumPy array, or PyTorch tensor for direct initialization.
+                - An existing H5Tensor for copying.
+            dataset_name: If loading from an HDF5 file, the name of the dataset.
+            h5_filepath: If loading from an HDF5 file, the file path.
+            device: The PyTorch device for the tensor ('cpu' or 'cuda').
+            requires_grad: If the tensor should track gradients.
+            shape: shape of the tensor if no data is provided
+        """
+        self.device = "cpu"
+        self.requires_grad = requires_grad
+        self.dtype=dtype
+        self.h5_filepath = h5_filepath
+        self.shape=shape
+
+        
+        
+        if isinstance(data, H5Tensor):
+            # Copy constructor for H5Tensor
+            data = data.to_tensor()
+            self._save_to_hdf5(data)
+        
+        elif isinstance(data, (list, np.ndarray, torch.Tensor)):
+            # Initialize from tensor-like data (list, NumPy array, PyTorch tensor)        
+            # Save data to HDF5
+            if isinstance(data, (list, np.ndarray)):
+                data=torch.tensor(data,requires_grad=self.requires_grad,dtype=self.dtype)
+            else:
+                self.requires_grad=data.requires_grad
+                self.dtype=data.dtype
+            self.shape=data.shape  
+            self._save_to_hdf5(data)
+        elif shape!=None:
+            self._save_to_hdf5(data=None)
+        elif os.path.exists(h5_filepath):
+            # Load data from HDF5 file
+            with h5py.File(self.h5_filepath, 'r') as f:
+                if "data" in f:
+                    self.shape = f["data"].shape
+                if "grad" in f:
+                    self.requires_grad=True
+        else:
+            raise ValueError("Invalid constructor arguments. Must provide either an HDF5 file with dataset, an H5Tensor, or tensor-like data.")
+
+    def _save_to_hdf5(self, data):
+        """Helper method to save data to HDF5 file.""" 
+        if not self.h5_filepath:
+            raise ValueError("No HDF5 file path provided to save data.")
+        
+        with h5py.File(self.h5_filepath, 'w') as f:
+            if data is not None:
+                # Save provided data to HDF5
+                f.create_dataset("data", data=data.cpu().detach().numpy())
+            else:
+                f.create_dataset("data", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0)
+            if self.requires_grad:
+                if data.grad is not None:
+                    f.create_dataset("grad", data=data.grad.cpu().detach().numpy())
+                else:
+                    f.create_dataset("grad", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0)
+    def __setitem__(self, index, value):
+        """Set a slice of the data in HDF5."""
+        with h5py.File(self.h5_filepath, 'a') as f:  # Open HDF5 file in append mode to allow modifications
+            if isinstance(value, H5Tensor):
+                value=value.to_tensor()
+            if isinstance(value, torch.Tensor):
+                f["data"][index] = value.cpu().detach().numpy()  # Write the new data to the HDF5 file
+                if self.requires_grad and value.grad is not None:
+                    f["grad"][index] = value.grad.cpu().detach().numpy()
+            else:
+                f["data"][index] = np.array(value) # Write the new data to the HDF5 file
+
+    
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+        
+        # Convert H5Tensor to a regular torch.Tensor for the operation
+        def convert(x):
+            return x.to_tensor() if isinstance(x, H5Tensor) else x
+
+        converted_args = tuple(map(convert, args))
+        converted_kwargs = {k: convert(v) for k, v in kwargs.items()}
+        
+        # Call the original function with the converted arguments
+        return func(*converted_args, **converted_kwargs)
+    
+    def __getattr__(self, name):
+        """
+        Catch attribute access and forward it to the PyTorch tensor.
+        This method is invoked when an attribute (like .reshape or .transpose)
+        is accessed.
+        """
+        # If the method is called (e.g., h5tensor.reshape), it will load the
+        # full tensor and apply the corresponding method.
+        if hasattr(torch.Tensor, name):
+            tensor = self.to_tensor()  # Load data from HDF5 and convert to a PyTorch tensor
+            attr = getattr(tensor, name)
+            
+            # If it's callable (a method like .reshape()), return a function that applies it
+            if callable(attr):
+                def method_wrapper(*args, **kwargs):
+                    return attr(*args, **kwargs)
+                return method_wrapper
+            else:
+                # Otherwise, return the attribute directly (like .shape)
+                return attr
+        else:
+            raise AttributeError(f"'H5Tensor' object has no attribute '{name}'")
+
+    def __getitem__(self, index):
+        with h5py.File(self.h5_filepath, 'r') as f:
+            data_slice = torch.tensor(f["data"][index], device=self.device,dtype=self.dtype,requires_grad=self.requires_grad)
+            if self.requires_grad:
+                data_slice.grad= torch.tensor(f["grad"][index],dtype=self.dtype)
+        return data_slice
+        
+
+    def to_tensor(self):
+        """
+        Convert the H5Tensor to a PyTorch tensor.
+        If the data is stored in HDF5, it will load it into memory.
+        """
+        
+        # Load entire dataset from HDF5 file
+        with h5py.File(self.h5_filepath, 'r') as f:
+            data = torch.tensor(f["data"][:], device=self.device,dtype=self.dtype,requires_grad=self.requires_grad)
+            if self.requires_grad:
+                data.grad= torch.tensor(f["grad"][:],dtype=self.dtype)
+        return data
+        
+
+    def __len__(self):
+        return self.shape[0]
+
+    def to(self, device):
+        self.device = device
+        return self
+
+    def __repr__(self):
+        if self.h5_filepath:
+            return f"H5Tensor(HDF5 file: {self.h5_filepath}, dataset: {self.dataset_name}, shape={self.shape}, device={self.device}, requires_grad={self.requires_grad})"
+        else:
+            return f"H5Tensor(shape={self.shape}, device={self.device}, requires_grad={self.requires_grad})"
+
+    # Implementing operators
+    def _apply_op(self, torch_op, other):
+        if isinstance(other, H5Tensor):
+            other = other.to_tensor()
+        return torch_op(self.to_tensor(), other)
+
+    def _apply_op_reverse(self, torch_op, other):
+        if isinstance(other, H5Tensor):
+            other = other.to_tensor()
+        return torch_op(other, self.to_tensor())
+
+    def _in_place_op(self, torch_op, other):
+        if isinstance(other, H5Tensor):
+            other = other.to_tensor()
+        tensor = self.to_tensor()    
+        tensor = torch_op(tensor, other)
+        with h5py.File(self.h5_filepath, 'a') as f:
+            # Write the modified data back to the HDF5 file
+            f["data"][:] = tensor.cpu().detach().numpy()
+            
+            # If requires_grad is enabled, handle gradients as well
+            if self.requires_grad and tensor.grad is not None:
+                f["grad"][:] = tensor.grad.cpu().detach().numpy()
+        return self
+
+    # Overriding binary operators
+# Binary Arithmetic Operations
+    def __add__(self, other):
+        return self._apply_op(torch.add, other)
+
+    def __radd__(self, other):
+        return self._apply_op(torch.add, other)
+
+    def __sub__(self, other):
+        return self._apply_op(torch.sub, other)
+
+    def __rsub__(self, other):
+        return self._apply_op_reverse(torch.sub, other)
+
+    def __mul__(self, other):
+        return self._apply_op(torch.mul, other)
+
+    def __rmul__(self, other):
+        return self._apply_op(torch.mul, other)
+
+    def __truediv__(self, other):
+        return self._apply_op(torch.div, other)
+
+    def __rtruediv__(self, other):
+        return self._apply_op_reverse(torch.div, other)
+
+    def __floordiv__(self, other):
+        return self._apply_op(torch.floor_divide, other)
+
+    def __rfloordiv__(self, other):
+        return self._apply_op_reverse(torch.floor_divide, other)
+
+    def __mod__(self, other):
+        return self._apply_op(torch.remainder, other)
+
+    def __rmod__(self, other):
+        return self._apply_op_reverse(torch.remainder, other)
+
+    def __pow__(self, other):
+        return self._apply_op(torch.pow, other)
+
+    def __rpow__(self, other):
+        return self._apply_op_reverse(torch.pow, other)
+
+    def __matmul__(self, other):
+        return self._apply_op(torch.matmul, other)
+
+    def __rmatmul__(self, other):
+        return self._apply_op_reverse(torch.matmul, other)
+
+    # In-place Arithmetic Operations
+    def __iadd__(self, other):
+        return self._in_place_op(torch.add, other)
+
+    def __isub__(self, other):
+        return self._in_place_op(torch.sub, other)
+
+    def __imul__(self, other):
+        return self._in_place_op(torch.mul, other)
+
+    def __itruediv__(self, other):
+        return self._in_place_op(torch.div, other)
+
+    def __ifloordiv__(self, other):
+        return self._in_place_op(torch.floor_divide, other)
+
+    def __imod__(self, other):
+        return self._in_place_op(torch.remainder, other)
+
+    def __ipow__(self, other):
+        return self._in_place_op(torch.pow, other)
+
+    def __imatmul__(self, other):
+        return self._in_place_op(torch.matmul, other)
+
+    # Comparison Operations
+    def __eq__(self, other):
+        return self._apply_op(torch.eq, other)
+
+    def __ne__(self, other):
+        return self._apply_op(torch.ne, other)
+
+    def __lt__(self, other):
+        return self._apply_op(torch.lt, other)
+
+    def __le__(self, other):
+        return self._apply_op(torch.le, other)
+
+    def __gt__(self, other):
+        return self._apply_op(torch.gt, other)
+
+    def __ge__(self, other):
+        return self._apply_op(torch.ge, other)
+
+    # Unary Arithmetic Operations
+    def __neg__(self):
+        return -self.to_tensor()
+
+    def __pos__(self):
+        return +self.to_tensor()
+
+    def __abs__(self):
+        return torch.abs(self.to_tensor())
+
+    # Bitwise Operators
+    def __and__(self, other):
+        return self._apply_op(torch.bitwise_and, other)
+
+    def __rand__(self, other):
+        return self._apply_op_reverse(torch.bitwise_and, other)
+
+    def __or__(self, other):
+        return self._apply_op(torch.bitwise_or, other)
+
+    def __ror__(self, other):
+        return self._apply_op_reverse(torch.bitwise_or, other)
+
+    def __xor__(self, other):
+        return self._apply_op(torch.bitwise_xor, other)
+
+    def __rxor__(self, other):
+        return self._apply_op_reverse(torch.bitwise_xor, other)
+
+    def __invert__(self):
+        return torch.bitwise_not(self.to_tensor())
+
+    def __lshift__(self, other):
+        return self._apply_op(torch.bitwise_left_shift, other)
+
+    def __rlshift__(self, other):
+        return self._apply_op_reverse(torch.bitwise_left_shift, other)
+
+    def __rshift__(self, other):
+        return self._apply_op(torch.bitwise_right_shift, other)
+
+    def __rrshift__(self, other):
+        return self._apply_op_reverse(torch.bitwise_right_shift, other)
+
+    # In-place Bitwise Operations
+    def __iand__(self, other):
+        return self._in_place_op(torch.bitwise_and, other)
+
+    def __ior__(self, other):
+        return self._in_place_op(torch.bitwise_or, other)
+
+    def __ixor__(self, other):
+        return self._in_place_op(torch.bitwise_xor, other)
+
+    def __ilshift__(self, other):
+        return self._in_place_op(torch.bitwise_left_shift, other)
+
+    def __irshift__(self, other):
+        return self._in_place_op(torch.bitwise_right_shift, other)
+
+    def __repr__(self):
+        return f"H5Tensor(shape={self.shape}, device={self.device})"

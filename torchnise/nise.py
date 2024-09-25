@@ -6,7 +6,10 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 import tqdm
-from torchnise.pytorch_utility import renorm
+from torchnise.pytorch_utility import (
+    renorm,
+    H5Tensor
+    )
 from torchnise import units
 from torchnise.averaging_and_lifetimes import (
     estimate_lifetime,
@@ -61,14 +64,15 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
 
     total_steps = int(total_time / dt) + 1
     total_steps_saved = int(total_time / dt / save_interval) + 1
-    psloc = torch.zeros((realizations, total_steps_saved, n_sites),
-                        device=device)
+    psloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites),h5_filepath="psloc.h5") #torch.zeros((realizations, total_steps_saved, n_sites),
+                       # device=device)
 
     aranged_realizations=torch.arange(realizations)
 
     if save_coherence:
-        coh_loc = torch.zeros((realizations, total_steps_saved, n_sites,
-                               n_sites), device=device, dtype=torch.complex64)
+        coh_loc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites),h5_filepath="cohloc.h5")
+        #torch.zeros((realizations, total_steps_saved, n_sites,
+         #                      n_sites), device=device, dtype=torch.complex64)
     #grab the 0th timestep
     #[all realizations : 0th timestep  : all sites : all sites]
     h = hfull[:, 0, :, :].clone().to(device=device)
@@ -94,8 +98,9 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         for i in range(n_sites):
             coh_loc[:, 0, i, i] = pop0[:, i]
     if save_u:
-        uloc = torch.zeros((realizations, total_steps_saved, n_sites, n_sites),
-                           device=device, dtype=torch.complex64)
+        uloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites),h5_filepath="uloc.h5")
+        #torch.zeros((realizations, total_steps_saved, n_sites, n_sites),
+        #                   device=device, dtype=torch.complex64)
         identity = torch.eye(n_sites, dtype=torch.complex64)
         identity = identity.reshape(1, n_sites, n_sites)
         uloc[:, 0, :, :] = identity.repeat(realizations, 1, 1)
@@ -345,22 +350,24 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             print(f"window is {window * dt} {units.CURRENT_T_UNIT}")
 
     def generate_hfull_chunk(chunk_size, start_index=0, window=1):
+        chunk_hfull = H5Tensor(shape=(chunk_size, total_steps, n_states, n_states),h5_filepath=f"H_{start_index}.h5")
         if time_dependent_h:
-            chunk_hfull = torch.zeros((chunk_size, total_steps, n_states, n_states))
             for j in range(chunk_size):
                 h_index = start_index + j
                 chunk_hfull[j, :, :, :] = torch.tensor(
                     h[window * h_index:window * h_index + total_steps, :, :])
             return chunk_hfull
-        chunk_hfull = torch.zeros((chunk_size, total_steps, n_states,
-                                   n_states))
         print("Generating noise")
         noise = gen_noise(spectral_funcs, dt, (chunk_size, total_steps,
                                                n_states))
         print("Building H")
         chunk_hfull[:] = h
-        for i in range(n_states):
-            chunk_hfull[:, :, i, i] += noise[:, :, i]
+        for real in range(realizations):
+            print(real)
+            chunk_hfull_real=chunk_hfull[real, :, :, :]
+            for i in range (n_states):
+                chunk_hfull_real [ :, i, i] + noise[real, :, i]
+            chunk_hfull[real, :, :, :] = chunk_hfull_real
         return chunk_hfull
 
     num_chunks = ((realizations + max_reps - 1) // max_reps

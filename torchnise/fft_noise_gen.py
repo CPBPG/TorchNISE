@@ -200,7 +200,7 @@ def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
     freq_bins = torch.fft.fftfreq(shape[axis], dt * units.T_UNIT) * 2 * np.pi
 
     # Envelope the frequencies with the spectral function
-    spectral_density = torch.sqrt(spectral_func(freq_bins))
+    spectral_density = torch.sqrt(torch.tensor(spectral_func(freq_bins)))
     reshaped_spectral_density = spectral_density.reshape(
                                            [1 if dim != axis else
                                             len(spectral_density)
