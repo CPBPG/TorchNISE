@@ -104,24 +104,55 @@ def estimate_lifetime(u_tensor, delta_t, method="oscillatory_fit_mae"):
     """
     n = u_tensor.shape[2]
     timesteps = u_tensor.shape[1]
-    time_array = torch.arange(timesteps, device=u_tensor.device,
+    
+    population = torch.zeros((timesteps,n), device=population.device, dtype=torch.float)
+    for i in range(n):
+        population[:,i] = torch.mean(torch.abs(u_tensor[:, :, i, i]) ** 2,
+                                dim=0).real
+        
+    lifetimes=estimate_lifetime_population(population,delta_t,method=method)
+    return lifetimes
+
+
+def estimate_lifetime_population(full_population, delta_t, method="oscillatory_fit_mae",equilib=None):
+    """
+    Estimate lifetimes of quantum states using various fitting methods.
+
+    Args:
+        u_tensor (torch.Tensor): Time evolution operator with dimensions 
+            (realizations, timesteps, n_sites, n_sites).
+        delta_t (float): Time step size.
+        method (str, optional): Method to use for lifetime estimation. 
+            Options are "oscillatory_fit_mae", "oscillatory_fit_mse", 
+            "simple_fit", "reverse_cummax", "simple_fit_mae". Default is 
+            "oscillatory_fit_mae".
+
+    Returns:
+        torch.Tensor: Estimated lifetimes of each state.
+    """
+    n = full_population.shape[-1]
+    timesteps = full_population.shape[0]
+    time_array = torch.arange(timesteps, device=full_population.device,
                               dtype=torch.float) * delta_t
-    lifetimes = torch.zeros(n, device=u_tensor.device, dtype=torch.float)
+    lifetimes = torch.zeros(n, device=full_population.device, dtype=torch.float)
+    if equilib==None:
+        equilib=torch.ones(n)
+        equilib= equilib*1/n
 
     # Helper function outside the loop
-    def get_func(method, n, time_array, population):
+    def get_func(method, equilib_i, time_array, population):
         if method.lower() == "simple_fit":
-            return lambda tau: objective(tau, n, time_array, population)
+            return lambda tau: objective(tau, equilib_i, time_array, population)
         if method.lower() == "reverse_cummax":
-            return lambda tau: objective_reverse_cummax(tau, n, time_array,
+            return lambda tau: objective_reverse_cummax(tau, equilib_i, time_array,
                                                         population)
         if method.lower() == "simple_fit_mae":
-            return lambda tau: objective_mae(tau, n, time_array, population)
+            return lambda tau: objective_mae(tau, equilib_i, time_array, population)
         if method.lower() == "oscillatory_fit_mae":
-            return lambda tau: objective_oscil_mae(tau, n, time_array,
+            return lambda tau: objective_oscil_mae(tau, equilib_i, time_array,
                                                    population)
         if method.lower() == "oscillatory_fit_mse":
-            return lambda tau: objective_oscil_mse(tau, n, time_array,
+            return lambda tau: objective_oscil_mse(tau, equilib_i, time_array,
                                                    population)
         raise ValueError(f""""
                          Unknown method for litetime interpolation:
@@ -131,12 +162,11 @@ def estimate_lifetime(u_tensor, delta_t, method="oscillatory_fit_mae"):
                          """)
 
     for i in range(n):
-        population = torch.mean(torch.abs(u_tensor[:, :, i, i]) ** 2,
-                                dim=0).real
+        population=full_population[:,i]
         tolerance = 0.1 * delta_t
-
+        
         # Get the appropriate function
-        func = get_func(method, i, time_array, population)
+        func = get_func(method, equilib[i], time_array, population)
 
         if method.lower() in ["simple_fit", "reverse_cummax",
                               "simple_fit_mae"]:
@@ -236,7 +266,7 @@ def reshape_weights(weight, population, coherence):
     return weight_reshaped, weight_coherence
 
 
-def objective_oscil_mae(tau_oscscale_oscstrength, n, time_array,
+def objective_oscil_mae(tau_oscscale_oscstrength, equilib_i, time_array,
                         population):
     """
     Objective function using Mean Absolute Error (MAE) for fitting
@@ -256,15 +286,15 @@ def objective_oscil_mae(tau_oscscale_oscstrength, n, time_array,
     amplitude = osc_strength
     vert_shift = 1 - osc_strength
     fit = (
-        (1 - 1 / n) * torch.exp(-time_array / tau) *
+        (1 - equilib_i) * torch.exp(-time_array / tau) *
         (amplitude * torch.cos(2 * np.pi * time_array / osc_scale) +
-         vert_shift) + 1 / n
+         vert_shift) + equilib_i
     )
     mae = torch.mean(torch.abs((population[1:] - fit[1:])))
     return mae.item()
 
 
-def objective_oscil_mse(tau_oscscale_oscstrength, n, time_array,
+def objective_oscil_mse(tau_oscscale_oscstrength, equilib_i, time_array,
                         population):
     """
     Objective function using Mean Squared Error (MSE) for fitting oscillatory
@@ -284,15 +314,15 @@ def objective_oscil_mse(tau_oscscale_oscstrength, n, time_array,
     amplitude = osc_strength
     vert_shift = 1 - osc_strength
     fit = (
-        (1 - 1 / n) * torch.exp(-time_array / tau) *
+        (1 - equilib_i) * torch.exp(-time_array / tau) *
         (amplitude * torch.cos(2 * np.pi * time_array / osc_scale) +
-         vert_shift) + 1 / n
+         vert_shift) + equilib_i
     )
     mse = torch.mean((population[1:] - fit[1:]) ** 2)
     return mse.item()
 
 
-def objective_mae(tau, n, time_array, population):
+def objective_mae(tau, equilib_i, time_array, population):
     """
     Objective function using Mean Absolute Error (MAE) for fitting decays.
 
@@ -305,12 +335,12 @@ def objective_mae(tau, n, time_array, population):
     Returns:
         float: Mean absolute error (MAE) between the population and the fit.
     """
-    fit = (1 - 1 / n) * torch.exp(-time_array / tau) + 1 / n
+    fit = (1 - equilib_i) * torch.exp(-time_array / tau) + equilib_i
     mae = torch.mean(torch.abs((population[1:] - fit[1:])))
     return mae.item()
 
 
-def objective(tau, n, time_array, population):
+def objective(tau, equilib_i, time_array, population):
     """
     Objective function using Mean Squared Error (MSE) for fitting decays.
 
@@ -323,12 +353,12 @@ def objective(tau, n, time_array, population):
     Returns:
         float: Mean squared error (MSE) between the population and the fit.
     """
-    fit = (1 - 1 / n) * torch.exp(-time_array / tau) + 1 / n
+    fit = (1 - equilib_i) * torch.exp(-time_array / tau) + equilib_i
     mse = torch.mean((population[1:] - fit[1:]) ** 2)
     return mse.item()
 
 
-def objective_reverse_cummax(tau, n, time_array, population):
+def objective_reverse_cummax(tau, equilib_i, time_array, population):
     """
     Objective function using reverse cumulative maximum for fitting decays.
 
@@ -342,7 +372,7 @@ def objective_reverse_cummax(tau, n, time_array, population):
         float: Weighted mean squared error (MSE) between the population and
             the fit.
     """
-    fit = (1 - 1 / n) * torch.exp(-time_array / tau) + 1 / n
+    fit = (1 - equilib_i) * torch.exp(-time_array / tau) + equilib_i
 
     reverse_cummax, _ = torch.flip(population, [0]).cummax(dim=0)
     reverse_cummax = torch.flip(reverse_cummax, [0])
