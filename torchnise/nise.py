@@ -98,7 +98,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         for i in range(n_sites):
             coh_loc[:, 0, i, i] = pop0[:, i]
     if save_u:
-        uloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites),h5_filepath="uloc.h5")
+        uloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites),h5_filepath="uloc.h5",dtype=torch.complex64)
         #torch.zeros((realizations, total_steps_saved, n_sites, n_sites),
         #                   device=device, dtype=torch.complex64)
         identity = torch.eye(n_sites, dtype=torch.complex64)
@@ -141,7 +141,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
 
         if t % save_interval == 0:
             psloc[:, t // save_interval, :] = (
-                        (phi_bin_loc_base.abs() ** 2)[:, :, 0] )
+                        (phi_bin_loc_base.abs() ** 2)[:, :, 0] ).real
             if save_u:
                 if t_correction.lower() in ["mlnise", "tnise"]:
                     for i in range(n_sites):
@@ -154,7 +154,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                 coh_loc[:, t // save_interval, :, :] = (
                     phi_bin_loc_base.squeeze(-1)[:, :, None] *
                     phi_bin_loc_base.squeeze(-1)[:, None, :].conj()
-                )
+                ).real
     coh_loc = coh_loc.cpu() if save_coherence else None
     uloc = uloc.cpu() if save_u else None
 

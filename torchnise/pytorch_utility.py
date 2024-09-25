@@ -379,23 +379,30 @@ class H5Tensor:
                 # Save provided data to HDF5
                 f.create_dataset("data", data=data.cpu().detach().numpy())
             else:
-                f.create_dataset("data", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0)
+                print(torch_to_numpy_dtype_dict[self.dtype])
+                if self.dtype.is_complex:
+                    f.create_dataset("data", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0+0j)
+                else:
+                    f.create_dataset("data", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0)
             if self.requires_grad:
                 if data.grad is not None:
                     f.create_dataset("grad", data=data.grad.cpu().detach().numpy())
                 else:
-                    f.create_dataset("grad", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0)
+                    if self.dtype.is_complex:
+                        f.create_dataset("grad", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0+0j)
+                    else:
+                        f.create_dataset("grad", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0)
     def __setitem__(self, index, value):
         """Set a slice of the data in HDF5."""
         with h5py.File(self.h5_filepath, 'a') as f:  # Open HDF5 file in append mode to allow modifications
             if isinstance(value, H5Tensor):
                 value=value.to_tensor()
             if isinstance(value, torch.Tensor):
-                f["data"][index] = value.cpu().detach().numpy()  # Write the new data to the HDF5 file
+                f["data"][index] = value.to(self.dtype).cpu().detach().numpy()  # Write the new data to the HDF5 file
                 if self.requires_grad and value.grad is not None:
-                    f["grad"][index] = value.grad.cpu().detach().numpy()
+                    f["grad"][index] = value.grad.to(self.dtype).cpu().detach().numpy()
             else:
-                f["data"][index] = np.array(value) # Write the new data to the HDF5 file
+                f["data"][index] = np.array(value,dtype=torch_to_numpy_dtype_dict[self.dtype]) # Write the new data to the HDF5 file
 
     
     def __torch_function__(self, func, types, args=(), kwargs=None):
