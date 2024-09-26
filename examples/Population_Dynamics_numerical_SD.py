@@ -70,7 +70,7 @@ Averaging1='standard' #boltzmann standard or interpolated
 
 population, xaxis_p = torchnise.nise.run_nise(H,realizations, total_time,dt, initialState,T, spectral_funcs,
             t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=1000,save_interval=100,
-            save_u= True, save_u_file=f"examples/data/u_test.pt")
+            save_u= True, save_u_file=f"examples/data/u_test.pt",use_h5=True)
 
 lh_complex_pop=[0]*len(lh_complexes)
 for i in range(n_sites):

@@ -26,5 +26,6 @@ setup(
         "torch==2.2.2",
         "torchvision==0.17.2",
         "tqdm==4.66.4",
+        "h5py"
     ],
 )

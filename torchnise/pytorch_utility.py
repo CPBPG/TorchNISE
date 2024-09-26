@@ -379,7 +379,6 @@ class H5Tensor:
                 # Save provided data to HDF5
                 f.create_dataset("data", data=data.cpu().detach().numpy())
             else:
-                print(torch_to_numpy_dtype_dict[self.dtype])
                 if self.dtype.is_complex:
                     f.create_dataset("data", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0+0j)
                 else:
