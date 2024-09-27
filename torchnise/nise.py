@@ -151,7 +151,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                                    t_correction, kbt, mlnise_model,
                                    mlnise_inputs, phi_b,aranged_realizations)
         #Make the Time Evolution operator
-        u = torch.diag_embed(torch.exp(-e[:, :] * factor)).bmm(
+        u = torch.diag_embed(torch.exp(-e[:, :] * factor).to(dtype=torch.complex64)).bmm(
                                                 s.to(dtype=torch.complex64))
         phi_b = u.bmm(phi_b) #Apply the time evolution operator
         if save_u:
