@@ -11,7 +11,7 @@ energy_unit="cm-1"
 time_unit="fs"
 torchnise.units.set_units(e_unit=energy_unit,t_unit=time_unit)
 dt=1
-total_time=10000
+total_time=1000
 realizations=100
 device="cpu" #"cuda" for GPU "cpu" for CPU
 excited_site=25
@@ -50,28 +50,38 @@ T_correction1='None' #TNISE or NONE MLNISE will come soon
 Averaging1='standard' #boltzmann standard or interpolated
 
 population, xaxis_p = torchnise.nise.run_nise(H,realizations, total_time,dt, initialState,T, spectral_funcs,
-               t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=10000)
+               t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=10000,use_h5=True)
 
 
 distance_squared=torch.sum((positions[excited_site,:].reshape((1,3))-positions)**2,dim=1)
 
+print(distance_squared)
+
 diffusion=distance_squared.reshape((1,n_sites))*population
 diffusion=torch.sum(diffusion,dim=1)
 
-for i in range(n_sites):
-    plt.plot(xaxis_p/1000,diffusion,label=f"Diffusion")
+plt.plot(xaxis_p/1000,population[:,excited_site],label=f"Population")
 plt.xlabel("time [ps]")
-plt.ylabel("population")
-plt.xlim([torch.min(xaxis_p),torch.max(xaxis_p)])
+plt.ylabel("Population")
+plt.xlim([torch.min(xaxis_p/1000),torch.max(xaxis_p/1000)])
 #plt.ylim([0,1])
 plt.legend()
 plt.show()
 plt.close()
 
-for i in range(n_sites):
-    plt.plot(xaxis_p[:-1]/1000,diffusion[1,:]/diffusion[:-1],label=f"Diffusion")
+plt.plot(xaxis_p/1000,diffusion,label=f"Diffusion")
 plt.xlabel("time [ps]")
-plt.ylabel("population")
+plt.ylabel("Diffusion")
+plt.xlim([torch.min(xaxis_p/1000),torch.max(xaxis_p/1000)])
+#plt.ylim([0,1])
+plt.legend()
+plt.show()
+plt.close()
+
+
+plt.plot(xaxis_p[:-1]/1000,diffusion[1:]/diffusion[:-1],label=f"Diffusion")
+plt.xlabel("time [ps]")
+plt.ylabel("Diffusion Constant")
 plt.xlim([torch.min(xaxis_p),torch.max(xaxis_p)])
 #plt.ylim([0,1])
 plt.legend()
