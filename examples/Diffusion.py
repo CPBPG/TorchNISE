@@ -14,12 +14,12 @@ dt=1
 total_time=1000
 realizations=100
 device="cpu" #"cuda" for GPU "cpu" for CPU
-excited_site=25
+excited_site=49
 if device=="cuda":
     torch.backends.cuda.preferred_linalg_library(backend="magma") #bottleneck for gpu calculations is torch.linalg.eigh which we found to be slightly faster with this backend
 
 
-n_sites=50
+n_sites=100
 
 H=torch.zeros((n_sites,n_sites))
 
@@ -55,8 +55,6 @@ population, xaxis_p = torchnise.nise.run_nise(H,realizations, total_time,dt, ini
 
 distance_squared=torch.sum((positions[excited_site,:].reshape((1,3))-positions)**2,dim=1)
 
-print(distance_squared)
-
 diffusion=distance_squared.reshape((1,n_sites))*population
 diffusion=torch.sum(diffusion,dim=1)
 
@@ -79,7 +77,7 @@ plt.show()
 plt.close()
 
 
-plt.plot(xaxis_p[:-1]/1000,diffusion[1:]/diffusion[:-1],label=f"Diffusion")
+plt.plot(xaxis_p[:-1]/1000,(diffusion[1:]-diffusion[:-1])/dt,label=f"Diffusion Constant")
 plt.xlabel("time [ps]")
 plt.ylabel("Diffusion Constant")
 plt.xlim([torch.min(xaxis_p/1000),torch.max(xaxis_p/1000)])
