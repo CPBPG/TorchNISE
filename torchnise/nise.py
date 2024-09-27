@@ -83,7 +83,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                                n_sites), device=device, dtype=torch.complex64)
     #grab the 0th timestep
     #[all realizations : 0th timestep  : all sites : all sites]
-    h = hfull[:, 0, :, :].clone().to(device=device)
+    h = hfull[0, :, :, :].clone().to(device=device)
     #get initial eigenenergies and transition matrix from eigen to site basis.
     e, c = torch.linalg.eigh(h)
     # Since the Hamiltonian is hermitian we van use eigh
@@ -123,7 +123,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
     #our population dynamics
     for t in tqdm.tqdm(range(1,total_steps)):
         #grab the t'th timestep
-        h = hfull[:, t, :, :].clone().to(device=device)
+        h = hfull[t, :, :, :].clone().to(device=device)
         #[all realizations : t'th timestep  : all sites : all sites]
         e, v_eps = torch.linalg.eigh(h)
         c = v_eps
@@ -368,28 +368,29 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             print(f"window is {window * dt} {units.CURRENT_T_UNIT}")
 
     def generate_hfull_chunk(chunk_size, start_index=0, window=1):
+        chunk_shape=(total_steps,chunk_size, n_states, n_states)
         if use_h5:
-            chunk_hfull = H5Tensor(shape=(chunk_size, total_steps, n_states, n_states),h5_filepath=f"H_{start_index}.h5")
+            chunk_hfull = H5Tensor(shape=chunk_shape,h5_filepath=f"H_{start_index}.h5")
         else:
-            chunk_hfull = torch.zeros((chunk_size, total_steps, n_states, n_states))
+            chunk_hfull = torch.zeros(chunk_shape)
         if time_dependent_h:
             for j in range(chunk_size):
                 h_index = start_index + j
-                chunk_hfull[j, :, :, :] = torch.tensor(
+                chunk_hfull[:, j, :, :] = torch.tensor(
                     h[window * h_index:window * h_index + total_steps, :, :])
             return chunk_hfull
         print("Generating noise")
-        noise = gen_noise(spectral_funcs, dt, (chunk_size, total_steps,
+        noise = gen_noise(spectral_funcs, dt, (total_steps,chunk_size, 
                                                n_states))
         print("Building H")
         chunk_hfull[:] = h
         if use_h5:
-            for real in range(realizations):
-                print(real)
-                chunk_hfull_real=chunk_hfull[real, :, :, :]
+            for step in tqdm.tqdm(range(realizations),desc="timesteps of noise added to Hamiltonian"):
+                #print(step)
+                chunk_hfull_step=chunk_hfull[step, :, :, :]
                 for i in range (n_states):
-                    chunk_hfull_real [ :, i, i] + noise[real, :, i]
-                chunk_hfull[real, :, :, :] = chunk_hfull_real
+                    chunk_hfull_step [ :, i, i] + noise[step, :, i]
+                chunk_hfull[step, :, :, :] = chunk_hfull_step
         else:
             for i in range (n_states):
                 chunk_hfull[:, :, i, i] += noise[:, :, i]
