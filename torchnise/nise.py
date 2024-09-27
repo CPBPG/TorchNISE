@@ -410,23 +410,23 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
                           n_states)).to(dtype=torch.float)
         if use_h5:     
             noise=H5Tensor(noise,"noise.h5")
-            #return h, noise
-        print("Building H")
-        chunk_hfull[:] = h
-        if use_h5:
-            for step in tqdm.tqdm(range(total_steps)
-                                  ,desc="timesteps of noise added to Hamiltonian"):
-                #print(step)
-                chunk_hfull_step=chunk_hfull[step, :, :, :]
+        return h, noise
+        #print("Building H")
+        #chunk_hfull[:] = h
+        #if use_h5:
+        #    for step in tqdm.tqdm(range(total_steps)
+        #                          ,desc="timesteps of noise added to Hamiltonian"):
+        #        #print(step)
+        #        chunk_hfull_step=chunk_hfull[step, :, :, :]
                 
-                for i in range (n_states):
-                    chunk_hfull_step[ :, i, i]=chunk_hfull_step[ :, i, i] + noise[step, :, i]
-                chunk_hfull[step, :, :, :] = chunk_hfull_step
-        else:
+        #        for i in range (n_states):
+        #            chunk_hfull_step[ :, i, i]=chunk_hfull_step[ :, i, i] + noise[step, :, i]
+        #        chunk_hfull[step, :, :, :] = chunk_hfull_step
+        #else:
             #chunk_hfull[:] = h
-            for i in range (n_states):
-                chunk_hfull[:, :, i, i] += noise[:, :, i]
-        return chunk_hfull, None
+        #    for i in range (n_states):
+        #        chunk_hfull[:, :, i, i] += noise[:, :, i]
+        #return chunk_hfull, None
 
     num_chunks = ((realizations + max_reps - 1) // max_reps
                   if realizations > max_reps else 1)
