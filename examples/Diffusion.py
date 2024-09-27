@@ -14,12 +14,12 @@ dt=1
 total_time=1000
 realizations=100
 device="cpu" #"cuda" for GPU "cpu" for CPU
-excited_site=49
+excited_site=24
 if device=="cuda":
     torch.backends.cuda.preferred_linalg_library(backend="magma") #bottleneck for gpu calculations is torch.linalg.eigh which we found to be slightly faster with this backend
 
 
-n_sites=100
+n_sites=50
 
 H=torch.zeros((n_sites,n_sites))
 

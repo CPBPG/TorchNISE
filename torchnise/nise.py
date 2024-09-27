@@ -23,17 +23,20 @@ from torchnise.absorption import (
 
 from torchnise.fft_noise_gen import gen_noise
 
+import matplotlib.pyplot as plt
+
 def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                    save_interval=1, t_correction="None", device="cpu",
                    save_u=False, save_coherence=False, mlnise_inputs=None,
-                   mlnise_model=None,use_h5=False):
+                   mlnise_model=None,use_h5=False,constant_v=False,site_noise=None):
     """
     Propagate the quantum state using the NISE algorithm with optional thermal
         corrections.
 
     Args:
         hfull (torch.Tensor): Hamiltonian of the system over time for different
-            realizations.
+            realizations. Shape should be (time_steps,realizations,n_sites,n_sites) 
+            except for constant_V mode where it is (n_sites,n_sites)
         realizations (int): Number of noise realizations to simulate.
         psi0 (torch.Tensor): Initial state of the system.
         total_time (float): Total time for the simulation.
@@ -56,12 +59,19 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         use_h5 (bool, optional): saves all tensors that are not currently 
             used to the disk in HDF5 format. reduces memory foorprint at some
             performance cost usually worth it for big systems. Defaults to False
+        constant_v (bool, optional): uses the constant coupling mode, hfull is
+            considered to be time independent and the noise is expected to be
+            provided via site_noise, the full hamilatonian is then 
+            hfull+diag_embedd(site_noise). Defaults to false
+        site_noise (torch.tensor): shape (steps,realizations,n_sites)
 
     Returns:
         tuple: (torch.Tensor, torch.Tensor, torch.Tensor) - Populations,
         coherences, and time evolution operators.
     """
     n_sites = hfull.shape[-1]
+    if constant_v:
+        hfull=hfull.reshape((1,n_sites,n_sites))
     factor = 1j * 1 / units.HBAR * dt * units.T_UNIT
     kbt = temperature * units.K
 
@@ -83,7 +93,10 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                                n_sites), device=device, dtype=torch.complex64)
     #grab the 0th timestep
     #[all realizations : 0th timestep  : all sites : all sites]
-    h = hfull[0, :, :, :].clone().to(device=device)
+    if constant_v:
+        h = hfull + torch.diag_embed(site_noise[0,:,:].clone())
+    else:
+        h = hfull[0, :, :, :].clone().to(device=device)
     #get initial eigenenergies and transition matrix from eigen to site basis.
     e, c = torch.linalg.eigh(h)
     # Since the Hamiltonian is hermitian we van use eigh
@@ -123,7 +136,10 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
     #our population dynamics
     for t in tqdm.tqdm(range(1,total_steps)):
         #grab the t'th timestep
-        h = hfull[t, :, :, :].clone().to(device=device)
+        if constant_v:
+            h = hfull + torch.diag_embed(site_noise[t,:,:].clone())
+        else:
+            h = hfull[t, :, :, :].clone().to(device=device)
         #[all realizations : t'th timestep  : all sites : all sites]
         e, v_eps = torch.linalg.eigh(h)
         c = v_eps
@@ -230,7 +246,8 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
                    save_interval=1, t_correction="None",
                    averaging_method="standard", lifetime_factor=5,
                    device="cpu", save_coherence=True, save_u=False,
-                   mlnise_inputs=None,use_h5=False):
+                   mlnise_inputs=None,use_h5=False,constant_v=False,
+                   site_noise=None):
     """
     Run NISE propagation with different averaging methods to calculate averaged
     population dynamics.
@@ -262,6 +279,11 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
         use_h5 (bool, optional): saves all tensors that are not currently 
             used to the disk in HDF5 format. reduces memory foorprint at some
             performance cost usually worth it for big systems. Defaults to False
+        constant_v (bool, optional): uses the constant coupling mode, hfull is
+            considered to be time independent and the noise is expected to be
+            provided via site_noise, the full hamilatonian is then 
+            hfull+diag_embedd(site_noise). Defaults to false
+        site_noise (torch.tensor): shape (steps,realizations,n_sites)
 
 
     Returns:
@@ -280,7 +302,8 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
                 hfull.to(device), realizations, psi0.to(device), total_time,
                 dt, temperature, save_interval=save_interval,
                 t_correction="None", device=device, save_u=True,
-                save_coherence=True, use_h5=use_h5
+                save_coherence=True, use_h5=use_h5,
+                constant_v=constant_v,site_noise=site_noise
             )
             lifetimes = (estimate_lifetime(u, dt * save_interval) *
                          lifetime_factor)
@@ -289,7 +312,8 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
             hfull.to(device), realizations, psi0.to(device), total_time, dt,
             temperature, save_interval=save_interval,
             t_correction=t_correction, device=device, save_u=save_u,
-            save_coherence=True, mlnise_inputs=mlnise_inputs, use_h5=use_h5
+            save_coherence=True, mlnise_inputs=mlnise_inputs, use_h5=use_h5,
+            constant_v=constant_v,site_noise=site_noise
         )
 
         population_averaged, coherence_averaged = averaging(
@@ -360,17 +384,19 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
     n_states = h.shape[-1]
     time_dependent_h = len(h.shape) >= 3
     window=1
-
     if time_dependent_h:
+        constant_v=False
         trajectory_steps = h.shape[0]
         if realizations > 1:
             window = int((trajectory_steps - total_steps) / (realizations - 1))
             print(f"window is {window * dt} {units.CURRENT_T_UNIT}")
+    else:
+        constant_v=True
 
     def generate_hfull_chunk(chunk_size, start_index=0, window=1):
         chunk_shape=(total_steps,chunk_size, n_states, n_states)
         if use_h5:
-            chunk_hfull = H5Tensor(shape=chunk_shape,h5_filepath=f"H_{start_index}.h5")
+                chunk_hfull = H5Tensor(shape=chunk_shape,h5_filepath=f"H_{start_index}.h5")
         else:
             chunk_hfull = torch.zeros(chunk_shape)
         if time_dependent_h:
@@ -378,23 +404,29 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
                 h_index = start_index + j
                 chunk_hfull[:, j, :, :] = torch.tensor(
                     h[window * h_index:window * h_index + total_steps, :, :])
-            return chunk_hfull
+            return chunk_hfull,None
         print("Generating noise")
         noise = gen_noise(spectral_funcs, dt, (total_steps,chunk_size, 
-                                               n_states))
+                          n_states)).to(dtype=torch.float)
+        if use_h5:     
+            noise=H5Tensor(noise,"noise.h5")
+            #return h, noise
         print("Building H")
         chunk_hfull[:] = h
         if use_h5:
-            for step in tqdm.tqdm(range(realizations),desc="timesteps of noise added to Hamiltonian"):
+            for step in tqdm.tqdm(range(total_steps)
+                                  ,desc="timesteps of noise added to Hamiltonian"):
                 #print(step)
                 chunk_hfull_step=chunk_hfull[step, :, :, :]
+                
                 for i in range (n_states):
-                    chunk_hfull_step [ :, i, i] + noise[step, :, i]
+                    chunk_hfull_step[ :, i, i]=chunk_hfull_step[ :, i, i] + noise[step, :, i]
                 chunk_hfull[step, :, :, :] = chunk_hfull_step
         else:
+            #chunk_hfull[:] = h
             for i in range (n_states):
                 chunk_hfull[:, :, i, i] += noise[:, :, i]
-        return chunk_hfull
+        return chunk_hfull, None
 
     num_chunks = ((realizations + max_reps - 1) // max_reps
                   if realizations > max_reps else 1)
@@ -416,7 +448,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
     for i in range(0, realizations, chunk_size):
         chunk_reps = min(chunk_size, realizations - i)
         weights.append(chunk_reps)
-        chunk_hfull = generate_hfull_chunk(chunk_reps, start_index=i,
+        chunk_hfull, site_noise = generate_hfull_chunk(chunk_reps, start_index=i,
                                            window=window)
         print("Running calculation")
         pop_avg, coherence_avg, u, lifetimes = nise_averaging(
@@ -424,7 +456,8 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             temperature, save_interval=save_interval,
             t_correction=t_correction, averaging_method=averaging_method,
             lifetime_factor=lifetime_factor, device=device, save_u=save_u,
-            save_coherence=True, mlnise_inputs=mlnise_inputs, use_h5=use_h5
+            save_coherence=True, mlnise_inputs=mlnise_inputs, use_h5=use_h5,
+            constant_v=constant_v,site_noise=site_noise
         )
 
         if mode.lower() == (
