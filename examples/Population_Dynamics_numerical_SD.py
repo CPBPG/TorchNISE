@@ -11,7 +11,7 @@ energy_unit="cm-1"
 time_unit="fs"
 torchnise.units.set_units(e_unit=energy_unit,t_unit=time_unit)
 dt=1
-total_time=10000
+total_time=100000
 realizations=1000
 device="cpu" #"cuda" for GPU "cpu" for CPU
 if device=="cuda":
@@ -69,8 +69,8 @@ Averaging1='standard' #boltzmann standard or interpolated
 
 
 population, xaxis_p = torchnise.nise.run_nise(H,realizations, total_time,dt, initialState,T, spectral_funcs,
-            t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=1000,save_interval=100,
-            save_u= True, save_u_file=f"examples/data/u_test.pt")
+            t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=100,save_interval=100,
+            save_u= True, save_u_file=f"examples/data/u_test.pt",use_h5=True)
 
 lh_complex_pop=[0]*len(lh_complexes)
 for i in range(n_sites):

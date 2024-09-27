@@ -26,7 +26,7 @@ from torchnise.fft_noise_gen import gen_noise
 def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                    save_interval=1, t_correction="None", device="cpu",
                    save_u=False, save_coherence=False, mlnise_inputs=None,
-                   mlnise_model=None):
+                   mlnise_model=None,use_h5=False):
     """
     Propagate the quantum state using the NISE algorithm with optional thermal
         corrections.
@@ -52,7 +52,10 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         mlnise_inputs (tuple, optional): Inputs for MLNISE model.
             Defaults to None.
         mlnise_model (nn.Module, optional): Machine learning model for MLNISE
-            corrections. Defaults to None.
+            corrections. Defaults to None.#
+        use_h5 (bool, optional): saves all tensors that are not currently 
+            used to the disk in HDF5 format. reduces memory foorprint at some
+            performance cost usually worth it for big systems. Defaults to False
 
     Returns:
         tuple: (torch.Tensor, torch.Tensor, torch.Tensor) - Populations,
@@ -64,15 +67,20 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
 
     total_steps = int(total_time / dt) + 1
     total_steps_saved = int(total_time / dt / save_interval) + 1
-    psloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites),h5_filepath="psloc.h5") #torch.zeros((realizations, total_steps_saved, n_sites),
-                       # device=device)
+    if use_h5:
+        psloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites),h5_filepath="psloc.h5") 
+    else:
+        psloc = torch.zeros((realizations, total_steps_saved, n_sites),
+                        device=device)
 
     aranged_realizations=torch.arange(realizations)
 
     if save_coherence:
-        coh_loc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites),h5_filepath="cohloc.h5")
-        #torch.zeros((realizations, total_steps_saved, n_sites,
-         #                      n_sites), device=device, dtype=torch.complex64)
+        if use_h5:
+            coh_loc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites),h5_filepath="cohloc.h5")
+        else:
+            coh_loc = torch.zeros((realizations, total_steps_saved, n_sites,
+                               n_sites), device=device, dtype=torch.complex64)
     #grab the 0th timestep
     #[all realizations : 0th timestep  : all sites : all sites]
     h = hfull[:, 0, :, :].clone().to(device=device)
@@ -98,9 +106,11 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         for i in range(n_sites):
             coh_loc[:, 0, i, i] = pop0[:, i]
     if save_u:
-        uloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites),h5_filepath="uloc.h5",dtype=torch.complex64)
-        #torch.zeros((realizations, total_steps_saved, n_sites, n_sites),
-        #                   device=device, dtype=torch.complex64)
+        if use_h5:
+            uloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites),h5_filepath="uloc.h5",dtype=torch.complex64)
+        else:
+            uloc = torch.zeros((realizations, total_steps_saved, n_sites, n_sites),
+                           device=device, dtype=torch.complex64)
         identity = torch.eye(n_sites, dtype=torch.complex64)
         identity = identity.reshape(1, n_sites, n_sites)
         uloc[:, 0, :, :] = identity.repeat(realizations, 1, 1)
@@ -220,7 +230,7 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
                    save_interval=1, t_correction="None",
                    averaging_method="standard", lifetime_factor=5,
                    device="cpu", save_coherence=True, save_u=False,
-                   mlnise_inputs=None):
+                   mlnise_inputs=None,use_h5=False):
     """
     Run NISE propagation with different averaging methods to calculate averaged
     population dynamics.
@@ -249,6 +259,10 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
             Defaults to False.
         mlnise_inputs (tuple, optional): Inputs for MLNISE model.
             Defaults to None.
+        use_h5 (bool, optional): saves all tensors that are not currently 
+            used to the disk in HDF5 format. reduces memory foorprint at some
+            performance cost usually worth it for big systems. Defaults to False
+
 
     Returns:
         tuple: (torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor) -
@@ -266,7 +280,7 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
                 hfull.to(device), realizations, psi0.to(device), total_time,
                 dt, temperature, save_interval=save_interval,
                 t_correction="None", device=device, save_u=True,
-                save_coherence=True
+                save_coherence=True, use_h5=use_h5
             )
             lifetimes = (estimate_lifetime(u, dt * save_interval) *
                          lifetime_factor)
@@ -275,7 +289,7 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
             hfull.to(device), realizations, psi0.to(device), total_time, dt,
             temperature, save_interval=save_interval,
             t_correction=t_correction, device=device, save_u=save_u,
-            save_coherence=True, mlnise_inputs=mlnise_inputs
+            save_coherence=True, mlnise_inputs=mlnise_inputs, use_h5=use_h5
         )
 
         population_averaged, coherence_averaged = averaging(
@@ -292,7 +306,8 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
              spectral_funcs, save_interval=1,save_u=False,save_u_file=None, 
              t_correction="None", mode="Population", mu=None, 
              absorption_padding=10000, averaging_method="standard", 
-             lifetime_factor=5, max_reps=100000, mlnise_inputs=None, device="cpu"):
+             lifetime_factor=5, max_reps=100000, mlnise_inputs=None, 
+             device="cpu", use_h5=False):
     """
     Main function to run NISE simulations for population dynamics or
     absorption spectra.
@@ -330,6 +345,9 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             None.
         device (str, optional): Device for computation ("cpu" or "cuda").
             Defaults to "cpu".
+        use_h5 (bool, optional): saves all tensors that are not currently 
+            used to the disk in HDF5 format. reduces memory foorprint at some
+            performance cost usually worth it for big systems. Defaults to False
 
     Returns:
         tuple: Depending on mode, returns either (np.ndarray, np.ndarray) for
@@ -350,7 +368,10 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             print(f"window is {window * dt} {units.CURRENT_T_UNIT}")
 
     def generate_hfull_chunk(chunk_size, start_index=0, window=1):
-        chunk_hfull = H5Tensor(shape=(chunk_size, total_steps, n_states, n_states),h5_filepath=f"H_{start_index}.h5")
+        if use_h5:
+            chunk_hfull = H5Tensor(shape=(chunk_size, total_steps, n_states, n_states),h5_filepath=f"H_{start_index}.h5")
+        else:
+            chunk_hfull = torch.zeros((chunk_size, total_steps, n_states, n_states))
         if time_dependent_h:
             for j in range(chunk_size):
                 h_index = start_index + j
@@ -362,12 +383,16 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
                                                n_states))
         print("Building H")
         chunk_hfull[:] = h
-        for real in range(realizations):
-            print(real)
-            chunk_hfull_real=chunk_hfull[real, :, :, :]
+        if use_h5:
+            for real in range(realizations):
+                print(real)
+                chunk_hfull_real=chunk_hfull[real, :, :, :]
+                for i in range (n_states):
+                    chunk_hfull_real [ :, i, i] + noise[real, :, i]
+                chunk_hfull[real, :, :, :] = chunk_hfull_real
+        else:
             for i in range (n_states):
-                chunk_hfull_real [ :, i, i] + noise[real, :, i]
-            chunk_hfull[real, :, :, :] = chunk_hfull_real
+                chunk_hfull[:, :, i, i] += noise[:, :, i]
         return chunk_hfull
 
     num_chunks = ((realizations + max_reps - 1) // max_reps
@@ -398,7 +423,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             temperature, save_interval=save_interval,
             t_correction=t_correction, averaging_method=averaging_method,
             lifetime_factor=lifetime_factor, device=device, save_u=save_u,
-            save_coherence=True, mlnise_inputs=mlnise_inputs
+            save_coherence=True, mlnise_inputs=mlnise_inputs, use_h5=use_h5
         )
 
         if mode.lower() == (
