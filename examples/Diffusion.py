@@ -50,7 +50,7 @@ T_correction1='None' #TNISE or NONE MLNISE will come soon
 Averaging1='standard' #boltzmann standard or interpolated
 
 population, xaxis_p = torchnise.nise.run_nise(H,realizations, total_time,dt, initialState,T, spectral_funcs,
-               t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=10000,use_h5=True)
+               t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=10000,use_h5=False)
 
 
 distance_squared=torch.sum((positions[excited_site,:].reshape((1,3))-positions)**2,dim=1)
