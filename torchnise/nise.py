@@ -390,10 +390,27 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         if realizations > 1:
             window = int((trajectory_steps - total_steps) / (realizations - 1))
             print(f"window is {window * dt} {units.CURRENT_T_UNIT}")
+        total_slices = trajectory_steps - total_steps + 1
+        available_slices = list(range(0, total_slices, window))
+        num_available_slices = len(available_slices)
+        print(f"Number of available slices: {num_available_slices}")
+
+        # Initialize shuffled_indices with shape (realizations, n_states)
+        shuffled_indices = torch.zeros((realizations, n_states), dtype=int)
+
+        # For each site, shuffle the available slices and assign to realizations
+        for i in range(n_states):
+            slices_for_site = available_slices.copy()
+            np.random.shuffle(slices_for_site)
+            repeats = (realizations + num_available_slices - 1) // num_available_slices
+            slices_for_site_extended = (slices_for_site * repeats)[:realizations]
+            shuffled_indices[:, i] = slices_for_site_extended
+
     else:
         constant_v=True
+        shuffled_indices = None
 
-    def generate_hfull_chunk(chunk_size, start_index=0, window=1):
+    def generate_hfull_chunk(chunk_size, start_index=0, window=1, shuffled_indices=None):
         chunk_shape=(total_steps,chunk_size, n_states, n_states)
         if use_h5:
                 chunk_hfull = H5Tensor(shape=chunk_shape,h5_filepath=f"H_{start_index}.h5")
@@ -404,7 +421,14 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
                 h_index = start_index + j
                 chunk_hfull[:, j, :, :] = torch.tensor(
                     h[window * h_index:window * h_index + total_steps, :, :])
+            if shuffled_indices is not None:
+                for i in range(n_states):
+                    shuffled_start = shuffled_indices[h_index, i]
+                    chunk_hfull[:, j, i, i] = torch.tensor(
+                        h[shuffled_start:shuffled_start + total_steps, i, i]
+                    )
             return chunk_hfull,None
+        
         print("Generating noise")
         noise = gen_noise(spectral_funcs, dt, (total_steps,chunk_size, 
                           n_states)).to(dtype=torch.float)
@@ -449,7 +473,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         chunk_reps = min(chunk_size, realizations - i)
         weights.append(chunk_reps)
         chunk_hfull, site_noise = generate_hfull_chunk(chunk_reps, start_index=i,
-                                           window=window)
+                                           window=window, shuffled_indices=shuffled_indices)
         print("Running calculation")
         pop_avg, coherence_avg, u, lifetimes = nise_averaging(
             chunk_hfull, chunk_reps, initial_state, total_time, dt,
