@@ -396,7 +396,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         print(f"Number of available slices: {num_available_slices}")
 
         # Initialize shuffled_indices with shape (realizations, n_states)
-        shuffled_indices = torch.zeros((realizations, n_states), dtype=int)
+        shuffled_indices = torch.zeros((realizations, n_states), dtype=torch.int)
 
         # For each site, shuffle the available slices and assign to realizations
         for i in range(n_states):
@@ -404,7 +404,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             np.random.shuffle(slices_for_site)
             repeats = (realizations + num_available_slices - 1) // num_available_slices
             slices_for_site_extended = (slices_for_site * repeats)[:realizations]
-            shuffled_indices[:, i] = slices_for_site_extended
+            shuffled_indices[:, i] = torch.tensor(slices_for_site_extended,dtype=torch.int)
 
     else:
         constant_v=True
