@@ -419,7 +419,6 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         if time_dependent_h:
             for j in range(chunk_size):
                 h_index = start_index + j
-                print(chunk_hfull.shape,h.shape)
                 chunk_hfull[:, j, :, :] = torch.tensor(
                     h[window * h_index:window * h_index + total_steps, :, :])
             if shuffled_indices is not None:
