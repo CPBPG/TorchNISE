@@ -386,7 +386,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
     window=1
     if time_dependent_h:
         constant_v=False
-        trajectory_steps = h.shape[-1]
+        trajectory_steps = h.shape[0]
         if realizations > 1:
             window = int((trajectory_steps - total_steps) / (realizations - 1))
             print(f"window is {window * dt} {units.CURRENT_T_UNIT}")
@@ -419,6 +419,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         if time_dependent_h:
             for j in range(chunk_size):
                 h_index = start_index + j
+                print(chunk_hfull.shape,h.shape)
                 chunk_hfull[:, j, :, :] = torch.tensor(
                     h[window * h_index:window * h_index + total_steps, :, :])
             if shuffled_indices is not None:
