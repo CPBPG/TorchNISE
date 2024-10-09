@@ -382,15 +382,17 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         noise = gen_noise(spectral_funcs, dt, (chunk_size, total_steps,
                                                n_states))
         print("Building H")
-        chunk_hfull[:] = h
+        
         if use_h5:
             for real in range(realizations):
                 print(real)
                 chunk_hfull_real=chunk_hfull[real, :, :, :]
+                chunk_hfull_real[:] = h
                 for i in range (n_states):
                     chunk_hfull_real [ :, i, i] + noise[real, :, i]
                 chunk_hfull[real, :, :, :] = chunk_hfull_real
         else:
+            chunk_hfull[:] = h
             for i in range (n_states):
                 chunk_hfull[:, :, i, i] += noise[:, :, i]
         return chunk_hfull
