@@ -5,7 +5,10 @@ import numpy as np
 from scipy.interpolate import interp1d
 import torch
 from torchnise import units
-
+import tqdm
+import os
+from torchnise.pytorch_utility import H5Tensor
+import time
 #inspired by https://stackoverflow.com/a/64288861
 def inverse_sample(dist, shape, x_min=-100, x_max=100, n=1e5, **kwargs):
     """
@@ -31,9 +34,81 @@ def inverse_sample(dist, shape, x_min=-100, x_max=100, n=1e5, **kwargs):
     f = interp1d(cumulative / cumulative.max(), x)
     return f(np.random.random(shape))
 
-
-def gen_noise(spectral_funcs, dt, shape):
+def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32):
     """
+    Generates time-correlated noise following the power spectrums provided in
+    spectral_funcs.
+    
+    Args:
+        shape (tuple): Shape of the output noise array. The first dimension is
+            the number of realizations, the second dimension is the number of
+            steps, and the remaining dimension is the number of sites.
+        dt (float): Time step size.
+        spectral_funcs (list(callable)): Must have either len 1 if all sites
+            follow the same power spectrum, or len n_sites=shape[-1] to provide a
+            separate power spectrum for each site.
+        use_h5 (bool): If True, uses h5 to save memory.
+        dtype (torch.dtype): Data type of the output noise array.
+    
+    Returns:
+        torch.Tensor: Time-correlated noise with the specified shape.
+    """
+    if len(shape) != 3:
+        raise ValueError(f""""
+                         gen_noise requires a shape tuple with
+                          (reals,steps,n_sites)
+                          but a tuple of size {len(shape)} was given""")
+
+    steps, reals, n_sites = shape
+    if use_h5:
+        filepath1=f"noise_{torch.randint(0,1000000,(1,)).item()}.h5"
+        while os.path.exists(filepath1):
+            filepath1=f"noise_{torch.randint(0,1000000,(1,)).item()}.h5"
+        filepath2=f"noise_{torch.randint(0,1000000,(1,)).item()}.h5"
+        while os.path.exists(filepath2):
+            filepath2=f"noise_{torch.randint(0,1000000,(1,)).item()}.h5"
+        noise2 = H5Tensor(shape=(n_sites,reals,steps),h5_filepath=filepath2,dtype=dtype)
+        noise = H5Tensor(shape=shape,h5_filepath=filepath1,dtype=dtype)
+    else:
+        noise = torch.zeros(shape, dtype=dtype)
+
+    if len(spectral_funcs) == 1:
+        for i in range(n_sites):
+            noise[:, :, i] = noise_algorithm_torch((steps, reals), dt, 
+                                                   spectral_funcs[0], axis=0)
+        return noise
+
+    if len(spectral_funcs) == n_sites:
+        if use_h5:
+            
+            for i in tqdm.tqdm(range(n_sites)):
+                noise2[i, :,:] = noise_algorithm_torch((reals,steps), dt, 
+                                                spectral_funcs[i], axis=1).squeeze()
+            # Iterate over timesteps in chunks
+            for s in tqdm.tqdm(range(0, steps, 10000)):
+                s_end = min(s + 10000, steps)
+                # Read a chunk of data (shape: n_sites, reals, chunk_size)
+                start_time = time.time()
+                data_chunk = noise2[:, :, s:s_end]
+                print(f"Read time: {time.time() - start_time}")
+                # Rearrange axes to get shape (chunk_size, reals, n_sites)
+                data_chunk = data_chunk.swapaxes(0, 2)
+                start_time = time.time()
+                noise[s:s_end, :, :] = data_chunk
+                print(f"Write time: {time.time() - start_time}")
+                # Process your data_chunk here without loading the full dataset
+                # For example, pass it to your model or perform computations
+
+                    
+            os.remove(filepath2)
+        else:
+            for i in tqdm.tqdm(range(n_sites),desc="Noise gen site"):
+                noise[:, :, i] = noise_algorithm_torch((steps, reals), dt, 
+                                                   spectral_funcs[i], axis=0)
+        return noise
+
+"""def gen_noise_old(spectral_funcs, dt, shape):"""
+"""
     Generates time-correlated noise following the power spectrums provided in
     spectral_funcs.
     
@@ -49,31 +124,33 @@ def gen_noise(spectral_funcs, dt, shape):
     Returns:
         torch.Tensor: Time-correlated noise with the specified shape.
     """
-    if len(shape) != 3:
-        raise ValueError(f""""
-                         gen_noise requires a shape tuple with
-                          (reals,steps,n_sites)
-                          but a tuple of size {len(shape)} was given""")
-
-    reals, steps, n_sites = shape
+"""
+    if len(shape) != 3:"""
+        #raise ValueError(f"""
+        #                 gen_noise requires a shape tuple with
+         #                 (reals,steps,n_sites)
+         #                 but a tuple of size {len(shape)} was given""")
+"""
+    steps, reals , n_sites = shape
     noise = torch.zeros(shape)
 
     if len(spectral_funcs) == 1:
         for i in range(n_sites):
-            noise[:, :, i] = noise_algorithm_torch((reals, steps), dt, 
+            noise[:, :, i] = noise_algorithm_torch((steps, reals), dt, 
                                                    spectral_funcs[0], axis=0)
         return noise
 
     if len(spectral_funcs) == n_sites:
-        for i in range(n_sites):
-            noise[:, :, i] = noise_algorithm_torch((reals, steps), dt, 
+        for i in tqdm.tqdm(range(n_sites),desc="Noise gen site"):
+            noise[:, :, i] = noise_algorithm_torch((steps, reals), dt, 
                                                    spectral_funcs[i], axis=0)
         return noise
+"""
+    #raise ValueError(f"""
+    #                 len of spectral_funcs was {len(spectral_funcs)},
+     #                 but must either be 1 or match number of sites ({n_sites})
+    #                  """)
 
-    raise ValueError(f"""
-                     len of spectral_funcs was {len(spectral_funcs)},
-                      but must either be 1 or match number of sites ({n_sites})
-                      """)
 
 
 def noise_algorithm(shape, dt, spectral_func, axis=-1, sample_dist=None,

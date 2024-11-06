@@ -28,7 +28,8 @@ import matplotlib.pyplot as plt
 def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                    save_interval=1, t_correction="None", device="cpu",
                    save_u=False, save_coherence=False, mlnise_inputs=None,
-                   mlnise_model=None,use_h5=False,constant_v=False,site_noise=None):
+                   mlnise_model=None,use_h5=False,constant_v=False,site_noise=None,
+                   v_td=None, v_dt=None):
     """
     Propagate the quantum state using the NISE algorithm with optional thermal
         corrections.
@@ -93,7 +94,13 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                                n_sites), device=device, dtype=torch.complex64)
     #grab the 0th timestep
     #[all realizations : 0th timestep  : all sites : all sites]
-    if constant_v:
+    if v_td is not None:
+        efull=torch.diagonal(hfull,dim1=-2,dim2=-1)
+        v_current = v_td[0,:,:,:].clone()
+        current_v_index=0
+        v_next=v_td[1,:,:,:].clone()
+        h = v_current  + torch.diag_embed(site_noise[0,:,:].clone()+efull)
+    elif constant_v:
         h = hfull + torch.diag_embed(site_noise[0,:,:].clone())
     else:
         h = hfull[0, :, :, :].clone().to(device=device)
@@ -136,7 +143,14 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
     #our population dynamics
     for t in tqdm.tqdm(range(1,total_steps)):
         #grab the t'th timestep
-        if constant_v:
+        if v_td is not None:
+            if (t*dt)//v_dt != current_v_index:
+                current_v_index=(t*dt)//v_dt
+                v_current = v_td[current_v_index,:,:,:].clone()
+                v_next=v_td[current_v_index+1,:,:,:].clone()
+            remainder=((t*dt)%v_dt)/v_dt
+            h = (v_current*(1-remainder) +v_next*remainder) + torch.diag_embed(site_noise[t,:,:].clone()+efull)
+        elif constant_v:
             h = hfull + torch.diag_embed(site_noise[t,:,:].clone())
         else:
             h = hfull[t, :, :, :].clone().to(device=device)
@@ -246,8 +260,9 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
                    save_interval=1, t_correction="None",
                    averaging_method="standard", lifetime_factor=5,
                    device="cpu", save_coherence=True, save_u=False,
-                   mlnise_inputs=None,use_h5=False,constant_v=False,
-                   site_noise=None):
+                   save_multi_pop=False, save_multi_slice=None, 
+                   mlnise_inputs=None,use_h5=False, constant_v=False, 
+                   site_noise=None,v_td=None, v_dt=None):
     """
     Run NISE propagation with different averaging methods to calculate averaged
     population dynamics.
@@ -274,6 +289,9 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
             Defaults to False.
         save_u (bool, optional): If True, save time evolution operators.
             Defaults to False.
+        save_multi_pop (bool, optional): if True, save the population of the sites
+            defined by save_multi_slice, Defaults to False
+        save_multi_slice (slice, optional): defines the slice of sites to save
         mlnise_inputs (tuple, optional): Inputs for MLNISE model.
             Defaults to None.
         use_h5 (bool, optional): saves all tensors that are not currently 
@@ -303,7 +321,8 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
                 dt, temperature, save_interval=save_interval,
                 t_correction="None", device=device, save_u=True,
                 save_coherence=True, use_h5=use_h5,
-                constant_v=constant_v,site_noise=site_noise
+                constant_v=constant_v,site_noise=site_noise,
+                v_td=v_td, v_dt=v_dt
             )
             lifetimes = (estimate_lifetime(u, dt * save_interval) *
                          lifetime_factor)
@@ -311,27 +330,35 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
         population, coherence, u = nise_propagate(
             hfull.to(device), realizations, psi0.to(device), total_time, dt,
             temperature, save_interval=save_interval,
-            t_correction=t_correction, device=device, save_u=save_u,
+            t_correction=t_correction, device=device, save_u=save_u or save_multi_slice,
             save_coherence=True, mlnise_inputs=mlnise_inputs, use_h5=use_h5,
-            constant_v=constant_v,site_noise=site_noise
+            constant_v=constant_v,site_noise=site_noise,v_td=v_td, v_dt=v_dt
         )
 
         population_averaged, coherence_averaged = averaging(
             population, averaging_method, lifetimes=lifetimes, step=dt*save_interval,
             coherence=coherence
         )
-
+        multi_pop = None
+        if save_multi_pop:
+            if save_multi_slice is None:
+                multi_pop = torch.mean((torch.abs(u) ** 2).real,dim=0)
+            else:
+                multi_pop = torch.mean((torch.abs(u[:,:,:,save_multi_slice]) ** 2).real,dim=0)
+            #TODO add other averaging methods
+        if not save_u:
+            u=None
         if not save_coherence:
             coherence_averaged = None
-        return population_averaged, coherence_averaged, u, lifetimes
+        return population_averaged, coherence_averaged, u, lifetimes, multi_pop
 
 
 def run_nise(h, realizations, total_time, dt, initial_state, temperature,
-             spectral_funcs, save_interval=1,save_u=False,save_u_file=None, 
-             t_correction="None", mode="Population", mu=None, 
-             absorption_padding=10000, averaging_method="standard", 
-             lifetime_factor=5, max_reps=100000, mlnise_inputs=None, 
-             device="cpu", use_h5=False):
+             spectral_funcs, save_interval=1,save_u=False,save_u_file=None,
+             save_multi_pop=False,save_multi_slice=None, save_pop_file=None,
+             t_correction="None", mode="Population", mu=None, absorption_padding=10000,
+             averaging_method="standard", lifetime_factor=5, max_reps=100000,
+             mlnise_inputs=None, device="cpu", use_h5=False,v_td=None, v_dt=None):
     """
     Main function to run NISE simulations for population dynamics or
     absorption spectra.
@@ -351,6 +378,11 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         save_u (bool, optional): if the time_evolution operator should be saved
             Defaults to False
         save_u_file (str, optional): if not none, u will be saved to this file
+        save_multi_pop (bool, optional): if True, save the population of the sites
+            defined by save_multi_slice, Defaults to False
+        save_multi_slice (slice, optional): defines the slice of sites to save
+        save_pop_file (str, optional): if not none, the population of all sites
+            will be saved to this file
         t_correction (str, optional): Method for thermal correction
             ("None", "TNISE", "MLNISE"). Defaults to "None".
         mode (str, optional): Simulation mode ("Population" or "Absorption").
@@ -411,12 +443,13 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         shuffled_indices = None
 
     def generate_hfull_chunk(chunk_size, start_index=0, window=1, shuffled_indices=None):
-        chunk_shape=(total_steps,chunk_size, n_states, n_states)
-        if use_h5:
-                chunk_hfull = H5Tensor(shape=chunk_shape,h5_filepath=f"H_{start_index}.h5")
-        else:
-            chunk_hfull = torch.zeros(chunk_shape)
+        
         if time_dependent_h:
+            chunk_shape=(total_steps,chunk_size, n_states, n_states)
+            if use_h5:
+                chunk_hfull = H5Tensor(shape=chunk_shape,h5_filepath=f"H_{start_index}.h5")
+            else:
+                chunk_hfull = torch.zeros(chunk_shape)
             for j in range(chunk_size):
                 h_index = start_index + j
                 chunk_hfull[:, j, :, :] = torch.tensor(
@@ -431,9 +464,9 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         
         print("Generating noise")
         noise = gen_noise(spectral_funcs, dt, (total_steps,chunk_size, 
-                          n_states)).to(dtype=torch.float)
-        if use_h5:     
-            noise=H5Tensor(noise,"noise.h5")
+                          n_states),dtype=torch.float32,use_h5=use_h5)
+        #if use_h5:     
+            #noise=H5Tensor(noise,"noise.h5")
         return h, noise
         #print("Building H")
         #chunk_hfull[:] = h
@@ -475,13 +508,14 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         chunk_hfull, site_noise = generate_hfull_chunk(chunk_reps, start_index=i,
                                            window=window, shuffled_indices=shuffled_indices)
         print("Running calculation")
-        pop_avg, coherence_avg, u, lifetimes = nise_averaging(
+        pop_avg, coherence_avg, u, lifetimes, multi_pop = nise_averaging(
             chunk_hfull, chunk_reps, initial_state, total_time, dt,
             temperature, save_interval=save_interval,
             t_correction=t_correction, averaging_method=averaging_method,
             lifetime_factor=lifetime_factor, device=device, save_u=save_u,
-            save_coherence=True, mlnise_inputs=mlnise_inputs, use_h5=use_h5,
-            constant_v=constant_v,site_noise=site_noise
+            save_coherence=True, save_multi_pop=save_multi_pop, 
+            save_multi_slice=save_multi_slice, mlnise_inputs=mlnise_inputs, 
+            use_h5=use_h5, constant_v=constant_v,site_noise=site_noise,v_td=v_td, v_dt=v_dt
         )
 
         if mode.lower() == (
@@ -500,6 +534,14 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
                     name=save_u_file
                     ending="pt"
                 torch.save(u,f"{name}_{i}.{ending}")
+        if save_multi_pop:
+            if save_multi_pop and save_pop_file!=None:
+                if "." in save_pop_file:
+                    name,ending=save_pop_file.split(".")
+                else:
+                    name=save_pop_file
+                    ending="pt"
+                torch.save(multi_pop,f"{name}_{i}.{ending}")
         all_output[i // chunk_size, :, :] = pop_avg
 
 
