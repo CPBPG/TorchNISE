@@ -74,15 +74,15 @@ def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32):
 
     if len(spectral_funcs) == 1:
         for i in range(n_sites):
-            noise[:, :, i] = noise_algorithm_torch((steps, reals), dt, 
+            noise[:, :, i] = noise_algorithm_torch((steps, reals), dt,
                                                    spectral_funcs[0], axis=0)
         return noise
 
     if len(spectral_funcs) == n_sites:
         if use_h5:
-            
+
             for i in tqdm.tqdm(range(n_sites)):
-                noise2[i, :,:] = noise_algorithm_torch((reals,steps), dt, 
+                noise2[i, :,:] = noise_algorithm_torch((reals,steps), dt,
                                                 spectral_funcs[i], axis=1).squeeze()
             # Iterate over timesteps in chunks
             for s in tqdm.tqdm(range(0, steps, 10000)):
@@ -99,57 +99,13 @@ def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32):
                 # Process your data_chunk here without loading the full dataset
                 # For example, pass it to your model or perform computations
 
-                    
+
             os.remove(filepath2)
         else:
             for i in tqdm.tqdm(range(n_sites),desc="Noise gen site"):
-                noise[:, :, i] = noise_algorithm_torch((steps, reals), dt, 
+                noise[:, :, i] = noise_algorithm_torch((steps, reals), dt,
                                                    spectral_funcs[i], axis=0)
         return noise
-
-"""def gen_noise_old(spectral_funcs, dt, shape):"""
-"""
-    Generates time-correlated noise following the power spectrums provided in
-    spectral_funcs.
-    
-    Args:
-        shape (tuple): Shape of the output noise array. The first dimension is
-            the number of realizations, the second dimension is the number of
-            steps, and the remaining dimension is the number of sites.
-        dt (float): Time step size.
-        spectral_funcs (list(callable)): Must have either len 1 if all sites
-            follow the same power spectrum, or len n_sites=shape[-1] to provide a
-            separate power spectrum for each site.
-    
-    Returns:
-        torch.Tensor: Time-correlated noise with the specified shape.
-    """
-"""
-    if len(shape) != 3:"""
-        #raise ValueError(f"""
-        #                 gen_noise requires a shape tuple with
-         #                 (reals,steps,n_sites)
-         #                 but a tuple of size {len(shape)} was given""")
-"""
-    steps, reals , n_sites = shape
-    noise = torch.zeros(shape)
-
-    if len(spectral_funcs) == 1:
-        for i in range(n_sites):
-            noise[:, :, i] = noise_algorithm_torch((steps, reals), dt, 
-                                                   spectral_funcs[0], axis=0)
-        return noise
-
-    if len(spectral_funcs) == n_sites:
-        for i in tqdm.tqdm(range(n_sites),desc="Noise gen site"):
-            noise[:, :, i] = noise_algorithm_torch((steps, reals), dt, 
-                                                   spectral_funcs[i], axis=0)
-        return noise
-"""
-    #raise ValueError(f"""
-    #                 len of spectral_funcs was {len(spectral_funcs)},
-     #                 but must either be 1 or match number of sites ({n_sites})
-    #                  """)
 
 
 
