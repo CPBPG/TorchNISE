@@ -307,7 +307,8 @@ class H5Tensor:
     This class provides a way to work with large tensors that do not fit into memory.
     
     """
-    def __init__(self, data=None, h5_filepath=None, requires_grad=False, dtype=torch.float,shape=None):
+    def __init__(self, data=None, h5_filepath=None, requires_grad=False,
+                 dtype=torch.float,shape=None):
         """
         Flexible constructor for H5Tensor.
         
@@ -353,8 +354,8 @@ class H5Tensor:
                 if "grad" in f:
                     self.requires_grad=True
         else:
-            raise ValueError("""Invalid constructor arguments. Must provide either an HDF5 
-                             file with dataset, an H5Tensor, or tensor-like data.""")
+            raise ValueError("""Invalid constructor arguments. Must provide either an HDF5
+                              file with dataset, an H5Tensor, or tensor-like data.""")
 
     def _save_to_hdf5(self, data):
         """Helper method to save data to HDF5 file.""" 
@@ -388,8 +389,8 @@ class H5Tensor:
                                          fillvalue=0)
     def __setitem__(self, index, value):
         """Set a slice of the data in HDF5."""
-        
-        with h5py.File(self.h5_filepath, 'a') as f: # Open HDF5 file in append mode 
+
+        with h5py.File(self.h5_filepath, 'a') as f: # Open HDF5 file in append mode
                                                     # to allow modifications
             if isinstance(value, H5Tensor):
                 value=value.to_tensor()
@@ -474,10 +475,10 @@ class H5Tensor:
 
     def __repr__(self):
         if self.h5_filepath:
-            return f"""H5Tensor(HDF5 file: {self.h5_filepath}, dataset: {self.dataset_name}, 
+            return f"""H5Tensor(HDF5 file: {self.h5_filepath}, dataset: {self.dataset_name},
             shape={self.shape}, device={self.device}, requires_grad={self.requires_grad})"""
         else:
-            return f"""H5Tensor(shape={self.shape}, device={self.device}, 
+            return f"""H5Tensor(shape={self.shape}, device={self.device},
             requires_grad={self.requires_grad})"""
 
     # Implementing operators
@@ -494,7 +495,7 @@ class H5Tensor:
     def _in_place_op(self, torch_op, other):
         if isinstance(other, H5Tensor):
             other = other.to_tensor()
-        tensor = self.to_tensor()    
+        tensor = self.to_tensor()
         tensor = torch_op(tensor, other)
         with h5py.File(self.h5_filepath, 'a') as f:
             # Write the modified data back to the HDF5 file
@@ -658,4 +659,3 @@ class H5Tensor:
 
     def __irshift__(self, other):
         return self._in_place_op(torch.bitwise_right_shift, other)
-

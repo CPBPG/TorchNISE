@@ -1,14 +1,14 @@
 """
 This file implements the fftNoiseGEN algorithm for time correlated Noise.
 """
+import os
+import time
 import numpy as np
 from scipy.interpolate import interp1d
 import torch
-from torchnise import units
 import tqdm
-import os
 from torchnise.pytorch_utility import H5Tensor
-import time
+from torchnise import units
 #inspired by https://stackoverflow.com/a/64288861
 def inverse_sample(dist, shape, x_min=-100, x_max=100, n=1e5, **kwargs):
     """

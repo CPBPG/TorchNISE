@@ -114,7 +114,8 @@ def estimate_lifetime(u_tensor, delta_t, method="oscillatory_fit_mae"):
     return lifetimes
 
 
-def estimate_lifetime_population(full_population, delta_t, method="oscillatory_fit_mae",equilib=None):
+def estimate_lifetime_population(full_population, delta_t,
+                                 method="oscillatory_fit_mae",equilib=None):
     """
     Estimate lifetimes of quantum states using various fitting methods.
 
