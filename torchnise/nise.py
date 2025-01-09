@@ -6,7 +6,6 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 import tqdm
-import matplotlib.pyplot as plt
 from torchnise.pytorch_utility import (
     renorm,
     H5Tensor

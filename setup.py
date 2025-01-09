@@ -11,7 +11,7 @@ setup(
     description="several nise extensions. ",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/ausstein/MLNISE",  
+    url="https://github.com/ausstein/MLNISE",
     packages=find_packages(),  # Automatically find packages in the project
     classifiers=[
         "Programming Language :: Python :: 3",

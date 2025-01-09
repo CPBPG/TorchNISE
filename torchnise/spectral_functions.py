@@ -2,8 +2,8 @@
 This file implements various spectral functions returning the power spectrum.
 """
 import numpy as np
-from torchnise import units
 from scipy.interpolate import interp1d
+from torchnise import units
 
 
 def spectral_numerical(data,temperature):
