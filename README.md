@@ -1,7 +1,7 @@
 # TorchNISE
 
 `TorchNISE` is a python package with a fully differentiable PyTorch implementation of the Numerical Integration of Schrödinger Equation (NISE) algorithm and the extensions presented in the papers "[Spectral Densities, Structured Noise and Ensemble Averaging within Open
-Quantum Dynamics] (https://doi.org/10.1063/5.0224807)" and "[Machine-learned correction to ensemble-averaged wave packet dynamics](https://doi.org/10.1063/5.0166694)" .
+Quantum Dynamics](https://doi.org/10.1063/5.0224807)" and "[Machine-learned correction to ensemble-averaged wave packet dynamics](https://doi.org/10.1063/5.0166694)" .
 
 ## Features
 
