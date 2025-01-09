@@ -299,27 +299,14 @@ def smooth_damp_to_zero(f_init, start, end):
                     (expdamp_helper(damprange) + expdamp_helper(1 - damprange)))
     return f
 
-"""
-# Check if torch.Tensor already has the to_mmap method
-if hasattr(torch.Tensor, 'to_mmap'):
-    print("torch.Tensor.to_mmap already exists.")
-else:
-    def to_mmap(self: torch.Tensor) -> torch.Tensor:
-        """""""
-        Extends the torch.Tensor class: torch.Tensor.to_mmap = to_mmap
-        Convert the tensor to a memory-mapped tensor.
-
-        Returns:
-            torch.Tensor: Memory-mapped tensor.
-        """""""
-        return tensor_to_mmap(self)
-
-    # Adding the method to the torch.Tensor class
-    torch.Tensor.to_mmap = to_mmap
-    #print("torch.Tensor.to_mmap has been added.")"""
-
 
 class H5Tensor:
+    """
+    A class for handling PyTorch tensors stored in HDF5 files.
+
+    This class provides a way to work with large tensors that do not fit into memory.
+    
+    """
     def __init__(self, data=None, h5_filepath=None, requires_grad=False, dtype=torch.float,shape=None):
         """
         Flexible constructor for H5Tensor.
@@ -340,13 +327,12 @@ class H5Tensor:
         self.h5_filepath = h5_filepath
         self.shape=shape
 
-        
-        
+
         if isinstance(data, H5Tensor):
             # Copy constructor for H5Tensor
             data = data.to_tensor()
             self._save_to_hdf5(data)
-        
+
         elif isinstance(data, (list, np.ndarray, torch.Tensor)):
             # Initialize from tensor-like data (list, NumPy array, PyTorch tensor)        
             # Save data to HDF5
@@ -357,7 +343,7 @@ class H5Tensor:
                 self.dtype=data.dtype
             self.shape=data.shape  
             self._save_to_hdf5(data)
-        elif shape!=None:
+        elif shape is not None:
             self._save_to_hdf5(data=None)
         elif os.path.exists(h5_filepath):
             # Load data from HDF5 file
@@ -367,57 +353,71 @@ class H5Tensor:
                 if "grad" in f:
                     self.requires_grad=True
         else:
-            raise ValueError("Invalid constructor arguments. Must provide either an HDF5 file with dataset, an H5Tensor, or tensor-like data.")
+            raise ValueError("""Invalid constructor arguments. Must provide either an HDF5 
+                             file with dataset, an H5Tensor, or tensor-like data.""")
 
     def _save_to_hdf5(self, data):
         """Helper method to save data to HDF5 file.""" 
         if not self.h5_filepath:
             raise ValueError("No HDF5 file path provided to save data.")
-        
+
         with h5py.File(self.h5_filepath, 'w') as f:
             if data is not None:
                 # Save provided data to HDF5
                 f.create_dataset("data", data=data.cpu().detach().numpy())
             else:
                 if self.dtype.is_complex:
-                    f.create_dataset("data", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0+0j)
+                    f.create_dataset("data", shape=self.shape,
+                                     dtype=torch_to_numpy_dtype_dict[self.dtype],
+                                     fillvalue=0+0j)
                 else:
-                    f.create_dataset("data", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0)
+                    f.create_dataset("data", shape=self.shape,
+                                     dtype=torch_to_numpy_dtype_dict[self.dtype],
+                                     fillvalue=0)
             if self.requires_grad:
                 if data.grad is not None:
                     f.create_dataset("grad", data=data.grad.cpu().detach().numpy())
                 else:
                     if self.dtype.is_complex:
-                        f.create_dataset("grad", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0+0j)
+                        f.create_dataset("grad", shape=self.shape,
+                                         dtype=torch_to_numpy_dtype_dict[self.dtype],
+                                         fillvalue=0+0j)
                     else:
-                        f.create_dataset("grad", shape=self.shape, dtype=torch_to_numpy_dtype_dict[self.dtype], fillvalue=0)
+                        f.create_dataset("grad", shape=self.shape,
+                                         dtype=torch_to_numpy_dtype_dict[self.dtype],
+                                         fillvalue=0)
     def __setitem__(self, index, value):
         """Set a slice of the data in HDF5."""
-        with h5py.File(self.h5_filepath, 'a') as f:  # Open HDF5 file in append mode to allow modifications
+        
+        with h5py.File(self.h5_filepath, 'a') as f: # Open HDF5 file in append mode 
+                                                    # to allow modifications
             if isinstance(value, H5Tensor):
                 value=value.to_tensor()
             if isinstance(value, torch.Tensor):
-                f["data"][index] = value.to(self.dtype).cpu().detach().numpy()  # Write the new data to the HDF5 file
+                # Write the new data to the HDF5 file
+                f["data"][index] = value.to(self.dtype).cpu().detach().numpy()
                 if self.requires_grad and value.grad is not None:
                     f["grad"][index] = value.grad.to(self.dtype).cpu().detach().numpy()
             else:
-                f["data"][index] = np.array(value,dtype=torch_to_numpy_dtype_dict[self.dtype]) # Write the new data to the HDF5 file
+                # Write the new data to the HDF5 file
+                f["data"][index] = np.array(value,
+                                            dtype=torch_to_numpy_dtype_dict[self.dtype])
 
-    
+
     def __torch_function__(self, func, types, args=(), kwargs=None):
         if kwargs is None:
             kwargs = {}
-        
+
         # Convert H5Tensor to a regular torch.Tensor for the operation
         def convert(x):
             return x.to_tensor() if isinstance(x, H5Tensor) else x
 
         converted_args = tuple(map(convert, args))
         converted_kwargs = {k: convert(v) for k, v in kwargs.items()}
-        
+
         # Call the original function with the converted arguments
         return func(*converted_args, **converted_kwargs)
-    
+
     def __getattr__(self, name):
         """
         Catch attribute access and forward it to the PyTorch tensor.
@@ -429,7 +429,7 @@ class H5Tensor:
         if hasattr(torch.Tensor, name):
             tensor = self.to_tensor()  # Load data from HDF5 and convert to a PyTorch tensor
             attr = getattr(tensor, name)
-            
+
             # If it's callable (a method like .reshape()), return a function that applies it
             if callable(attr):
                 def method_wrapper(*args, **kwargs):
@@ -443,25 +443,27 @@ class H5Tensor:
 
     def __getitem__(self, index):
         with h5py.File(self.h5_filepath, 'r') as f:
-            data_slice = torch.tensor(f["data"][index], device=self.device,dtype=self.dtype,requires_grad=self.requires_grad)
+            data_slice = torch.tensor(f["data"][index], device=self.device,dtype=self.dtype
+                                      ,requires_grad=self.requires_grad)
             if self.requires_grad:
                 data_slice.grad= torch.tensor(f["grad"][index],dtype=self.dtype)
         return data_slice
-        
+
 
     def to_tensor(self):
         """
         Convert the H5Tensor to a PyTorch tensor.
         If the data is stored in HDF5, it will load it into memory.
         """
-        
+
         # Load entire dataset from HDF5 file
         with h5py.File(self.h5_filepath, 'r') as f:
-            data = torch.tensor(f["data"][:], device=self.device,dtype=self.dtype,requires_grad=self.requires_grad)
+            data = torch.tensor(f["data"][:], device=self.device,dtype=self.dtype,
+                                requires_grad=self.requires_grad)
             if self.requires_grad:
                 data.grad= torch.tensor(f["grad"][:],dtype=self.dtype)
         return data
-        
+
 
     def __len__(self):
         return self.shape[0]
@@ -472,9 +474,11 @@ class H5Tensor:
 
     def __repr__(self):
         if self.h5_filepath:
-            return f"H5Tensor(HDF5 file: {self.h5_filepath}, dataset: {self.dataset_name}, shape={self.shape}, device={self.device}, requires_grad={self.requires_grad})"
+            return f"""H5Tensor(HDF5 file: {self.h5_filepath}, dataset: {self.dataset_name}, 
+            shape={self.shape}, device={self.device}, requires_grad={self.requires_grad})"""
         else:
-            return f"H5Tensor(shape={self.shape}, device={self.device}, requires_grad={self.requires_grad})"
+            return f"""H5Tensor(shape={self.shape}, device={self.device}, 
+            requires_grad={self.requires_grad})"""
 
     # Implementing operators
     def _apply_op(self, torch_op, other):
@@ -495,7 +499,7 @@ class H5Tensor:
         with h5py.File(self.h5_filepath, 'a') as f:
             # Write the modified data back to the HDF5 file
             f["data"][:] = tensor.cpu().detach().numpy()
-            
+
             # If requires_grad is enabled, handle gradients as well
             if self.requires_grad and tensor.grad is not None:
                 f["grad"][:] = tensor.grad.cpu().detach().numpy()
@@ -655,5 +659,3 @@ class H5Tensor:
     def __irshift__(self, other):
         return self._in_place_op(torch.bitwise_right_shift, other)
 
-    def __repr__(self):
-        return f"H5Tensor(shape={self.shape}, device={self.device})"

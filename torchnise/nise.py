@@ -6,6 +6,7 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 import tqdm
+import matplotlib.pyplot as plt
 from torchnise.pytorch_utility import (
     renorm,
     H5Tensor
@@ -22,8 +23,6 @@ from torchnise.absorption import (
     )
 
 from torchnise.fft_noise_gen import gen_noise
-
-import matplotlib.pyplot as plt
 
 def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                    save_interval=1, t_correction="None", device="cpu",
@@ -79,7 +78,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
     total_steps = int(total_time / dt) + 1
     total_steps_saved = int(total_time / dt / save_interval) + 1
     if use_h5:
-        psloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites),h5_filepath="psloc.h5") 
+        psloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites),h5_filepath="psloc.h5")
     else:
         psloc = torch.zeros((realizations, total_steps_saved, n_sites),
                         device=device)
@@ -88,7 +87,8 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
 
     if save_coherence:
         if use_h5:
-            coh_loc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites),h5_filepath="cohloc.h5")
+            coh_loc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites)
+                               ,h5_filepath="cohloc.h5")
         else:
             coh_loc = torch.zeros((realizations, total_steps_saved, n_sites,
                                n_sites), device=device, dtype=torch.complex64)
@@ -127,7 +127,8 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
             coh_loc[:, 0, i, i] = pop0[:, i]
     if save_u:
         if use_h5:
-            uloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites),h5_filepath="uloc.h5",dtype=torch.complex64)
+            uloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites)
+                            ,h5_filepath="uloc.h5",dtype=torch.complex64)
         else:
             uloc = torch.zeros((realizations, total_steps_saved, n_sites, n_sites),
                            device=device, dtype=torch.complex64)
@@ -149,7 +150,8 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                 v_current = v_td[current_v_index,:,:,:].clone()
                 v_next=v_td[current_v_index+1,:,:,:].clone()
             remainder=((t*dt)%v_dt)/v_dt
-            h = (v_current*(1-remainder) +v_next*remainder) + torch.diag_embed(site_noise[t,:,:].clone()+efull)
+            h = (v_current*(1-remainder) +v_next*remainder) + torch.diag_embed(
+                site_noise[t,:,:].clone()+efull)
         elif constant_v:
             h = hfull + torch.diag_embed(site_noise[t,:,:].clone())
         else:
@@ -253,15 +255,17 @@ def apply_t_correction(s, n_sites, realizations, device, e, eold,
         #because previously some errors showed
         #should probably be simplified
         norm = torch.abs(s[aranged_realizations, kk, ii])
-        s[1 - cd > 0, kk[1 - cd > 0], ii] = torch.sqrt(1 - cd[1 - cd > 0]) * s[1 - cd > 0,kk[1 - cd > 0],ii] / norm[1 - cd > 0]
+        s[1 - cd > 0, kk[1 - cd > 0], ii] = (torch.sqrt(1 - cd[1 - cd > 0]) *
+                                             s[1 - cd > 0,kk[1 - cd > 0],ii]
+                                             /norm[1 - cd > 0])
         return s
 
 def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
                    save_interval=1, t_correction="None",
                    averaging_method="standard", lifetime_factor=5,
                    device="cpu", save_coherence=True, save_u=False,
-                   save_multi_pop=False, save_multi_slice=None, 
-                   mlnise_inputs=None,use_h5=False, constant_v=False, 
+                   save_multi_pop=False, save_multi_slice=None,
+                   mlnise_inputs=None,use_h5=False, constant_v=False,
                    site_noise=None,v_td=None, v_dt=None):
     """
     Run NISE propagation with different averaging methods to calculate averaged
@@ -443,7 +447,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         shuffled_indices = None
 
     def generate_hfull_chunk(chunk_size, start_index=0, window=1, shuffled_indices=None):
-        
+
         if time_dependent_h:
             chunk_shape=(total_steps,chunk_size, n_states, n_states)
             if use_h5:
@@ -461,11 +465,11 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
                         h[shuffled_start:shuffled_start + total_steps, i, i]
                     )
             return chunk_hfull,None
-        
+
         print("Generating noise")
-        noise = gen_noise(spectral_funcs, dt, (total_steps,chunk_size, 
+        noise = gen_noise(spectral_funcs, dt, (total_steps,chunk_size,
                           n_states),dtype=torch.float32,use_h5=use_h5)
-        #if use_h5:     
+        #if use_h5:
             #noise=H5Tensor(noise,"noise.h5")
         return h, noise
         #print("Building H")
@@ -475,7 +479,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         #                          ,desc="timesteps of noise added to Hamiltonian"):
         #        #print(step)
         #        chunk_hfull_step=chunk_hfull[step, :, :, :]
-                
+
         #        for i in range (n_states):
         #            chunk_hfull_step[ :, i, i]=chunk_hfull_step[ :, i, i] + noise[step, :, i]
         #        chunk_hfull[step, :, :, :] = chunk_hfull_step
@@ -513,8 +517,8 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             temperature, save_interval=save_interval,
             t_correction=t_correction, averaging_method=averaging_method,
             lifetime_factor=lifetime_factor, device=device, save_u=save_u,
-            save_coherence=True, save_multi_pop=save_multi_pop, 
-            save_multi_slice=save_multi_slice, mlnise_inputs=mlnise_inputs, 
+            save_coherence=True, save_multi_pop=save_multi_pop,
+            save_multi_slice=save_multi_slice, mlnise_inputs=mlnise_inputs,
             use_h5=use_h5, constant_v=constant_v,site_noise=site_noise,v_td=v_td, v_dt=v_dt
         )
 
@@ -527,7 +531,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             absorb_time = absorption_time_domain(u, mu)
             all_absorb_time.append(absorb_time)
         if save_u:
-            if save_u and save_u_file!=None:
+            if save_u and save_u_file is not None:
                 if "." in save_u_file:
                     name,ending=save_u_file.split(".")
                 else:
@@ -535,7 +539,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
                     ending="pt"
                 torch.save(u,f"{name}_{i}.{ending}")
         if save_multi_pop:
-            if save_multi_pop and save_pop_file!=None:
+            if save_multi_pop and save_pop_file is not None:
                 if "." in save_pop_file:
                     name,ending=save_pop_file.split(".")
                 else:
@@ -558,7 +562,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
     else:
         lifetimes = None
         avg_output = np.average(all_output, axis=0, weights=weights)
-    
+
 
     if mode.lower() == "absorption":
         avg_absorb_time = np.average(all_absorb_time, axis=0, weights=weights)
