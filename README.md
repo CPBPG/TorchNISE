@@ -6,6 +6,8 @@
 
 - Population (and Coherence) Dynamics 
 
+- Exciton Diffusion
+
 - Absorption Spectra
 
 - Noise generation following spectral densities, to generate time dependent Hamiltonians.
@@ -53,11 +55,33 @@ Licenced under Creative Commons Attribution 4.0 International Public License.
 That is, you can use this work in any way you want as long as you give Attribution to the original authors.
 We Request the Attributions to be in the form of citing the respective papers.
 
+## Utilized in 
+
+- [Machine-learned correction to ensemble-averaged wave packet dynamics](https://doi.org/10.1063/5.0166694)"
+
+- [Spectral Densities, Structured Noise and Ensemble Averaging with Open Quantum Dynamics](https://doi.org/10.1063/5.0224807)
+
+- [Excitation Energy Transfer between Porphyrin Dyes on a Clay Surface: A study employing Multifidelity Machine Learning](https://arxiv.org/abs/2410.20551)
+
+## Changelog
+
+### 0.1.0
+
+- Initial Release
+
+### 0.2.0
+
+- support for keeping large Tensors on the disk via h5py
+- added example for Diffusion Calculation
+- added example showing usage of numerical spectral density
+- moved the noise Algorithm to use pytorch
+- added options to have constant coupling or couplings with a different timestep than the energies so that the full time dependent Hamiltonian does not have to be put in memory
+- added option to automatically save the population dynamics starting in multiple sites
+- multiple bugfixes and optimizations
+
 ## Future plans
 
 - Include documented support for MLNISE training
-
-- Optimize memory usage: right now too many intermediate results are kept in memory unnecessarily.
 
 - Add Tutorials
 
@@ -66,5 +90,12 @@ We Request the Attributions to be in the form of citing the respective papers.
 - Make the code more readable by splitting long functions into smaller ones and reduce the number of inputs.
 
 - Migrate remaining NumPy based functions to PyTorch
+(0.2.0 noise generation has been migrated to PyTorch)
+
+## Completed
+
+- Optimize memory usage: right now too many intermediate results are kept in memory unnecessarily.
+Now tensors can be kept on disk by using h5py
+
 
 

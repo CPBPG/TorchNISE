@@ -25,7 +25,8 @@ def absorption_time_domain(time_evolution_operator, dipole_moments,
             account for the lifetime of the state. Default is False.
         lifetime (float, optional): Lifetime for the damping. Default is 1000. 
             Units are not important as long as dt and lifetime have the same 
-            unit. dt (float, optional): Time step size. Default is 1.
+            unit. 
+        dt (float, optional): Time step size. Default is 1.
     
     Returns:
         numpy.ndarray: Time domain absorption.

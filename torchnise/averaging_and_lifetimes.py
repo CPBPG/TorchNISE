@@ -276,7 +276,7 @@ def objective_oscil_mae(tau_oscscale_oscstrength, equilib_i, time_array,
     Args:
         tau_oscscale_oscstrength (tuple): Tuple containing tau, osc_scale,
             and osc_strength parameters.
-        n (int): Number of states.
+        equilib_i (float): Expected equilibrium population of state i.
         time_array (torch.Tensor): Array of time steps.
         population (torch.Tensor): Population tensor for the state.
 
@@ -304,7 +304,7 @@ def objective_oscil_mse(tau_oscscale_oscstrength, equilib_i, time_array,
     Args:
         tau_oscscale_oscstrength (tuple): Tuple containing tau, osc_scale,
             and osc_strength parameters.
-        n (int): Number of states.
+        equilib_i (float): Expected equilibrium population of state i.
         time_array (torch.Tensor): Array of time steps.
         population (torch.Tensor): Population tensor for the state.
 
@@ -329,7 +329,7 @@ def objective_mae(tau, equilib_i, time_array, population):
 
     Args:
         tau (float): Decay constant.
-        n (int): Number of states.
+        equilib_i (float): Expected equilibrium population of state i.
         time_array (torch.Tensor): Array of time steps.
         population (torch.Tensor): Population tensor for the state.
 
@@ -347,7 +347,7 @@ def objective(tau, equilib_i, time_array, population):
 
     Args:
         tau (float): Decay constant.
-        n (int): Number of states.
+        equilib_i (float): Expected equilibrium population of state i.
         time_array (torch.Tensor): Array of time steps.
         population (torch.Tensor): Population tensor for the state.
 
@@ -365,7 +365,7 @@ def objective_reverse_cummax(tau, equilib_i, time_array, population):
 
     Args:
         tau (float): Decay constant.
-        n (int): Number of states.
+        equilib_i (float): Expected equilibrium population of state i.
         time_array (torch.Tensor): Array of time steps.
         population (torch.Tensor): Population tensor for the state.
 

@@ -27,7 +27,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                    save_interval=1, t_correction="None", device="cpu",
                    save_u=False, save_coherence=False, mlnise_inputs=None,
                    mlnise_model=None,use_h5=False,constant_v=False,site_noise=None,
-                   v_td=None, v_dt=None):
+                   v_time_dependent=None, v_dt=None):
     """
     Propagate the quantum state using the NISE algorithm with optional thermal
         corrections.
@@ -35,7 +35,8 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
     Args:
         hfull (torch.Tensor): Hamiltonian of the system over time for different
             realizations. Shape should be (time_steps,realizations,n_sites,n_sites) 
-            except for constant_V mode where it is (n_sites,n_sites)
+            except for constant_V or v_time_dependent mode where it is 
+            (n_sites,n_sites)
         realizations (int): Number of noise realizations to simulate.
         psi0 (torch.Tensor): Initial state of the system.
         total_time (float): Total time for the simulation.
@@ -62,7 +63,14 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
             considered to be time independent and the noise is expected to be
             provided via site_noise, the full hamilatonian is then 
             hfull+diag_embedd(site_noise). Defaults to false
-        site_noise (torch.tensor): shape (steps,realizations,n_sites)
+        site_noise (torch.tensor): site noise used for constant coupling mode
+            or v_time_dependent mode. Should have shape (steps,realizations,n_sites)
+            Defaults to None.
+        v_time_dependent (torch.tensor): if not None these couplings will be 
+            used with the specified timestep v_dt. Should only be used if v_dt
+            is larger than dt, otherwise use the Full Hamiltonian in hfull.
+            Defaults to None.
+        v_dt (float): timestep for the time dependent coupling.
 
     Returns:
         tuple: (torch.Tensor, torch.Tensor, torch.Tensor) - Populations,
@@ -77,7 +85,8 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
     total_steps = int(total_time / dt) + 1
     total_steps_saved = int(total_time / dt / save_interval) + 1
     if use_h5:
-        psloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites),h5_filepath="psloc.h5")
+        psloc = H5Tensor(shape=(realizations, total_steps_saved, n_sites),
+                         h5_filepath="psloc.h5")
     else:
         psloc = torch.zeros((realizations, total_steps_saved, n_sites),
                         device=device)
@@ -86,18 +95,18 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
 
     if save_coherence:
         if use_h5:
-            coh_loc = H5Tensor(shape=(realizations, total_steps_saved, n_sites, n_sites)
-                               ,h5_filepath="cohloc.h5")
+            coh_loc = H5Tensor(shape=(realizations, total_steps_saved,
+                                      n_sites, n_sites), h5_filepath="cohloc.h5")
         else:
             coh_loc = torch.zeros((realizations, total_steps_saved, n_sites,
                                n_sites), device=device, dtype=torch.complex64)
     #grab the 0th timestep
     #[all realizations : 0th timestep  : all sites : all sites]
-    if v_td is not None:
+    if v_time_dependent is not None:
         efull=torch.diagonal(hfull,dim1=-2,dim2=-1)
-        v_current = v_td[0,:,:,:].clone()
+        v_current = v_time_dependent[0,:,:,:].clone()
         current_v_index=0
-        v_next=v_td[1,:,:,:].clone()
+        v_next=v_time_dependent[1,:,:,:].clone()
         h = v_current  + torch.diag_embed(site_noise[0,:,:].clone()+efull)
     elif constant_v:
         h = hfull + torch.diag_embed(site_noise[0,:,:].clone())
@@ -143,11 +152,11 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
     #our population dynamics
     for t in tqdm.tqdm(range(1,total_steps)):
         #grab the t'th timestep
-        if v_td is not None:
+        if v_time_dependent is not None:
             if (t*dt)//v_dt != current_v_index:
                 current_v_index=(t*dt)//v_dt
-                v_current = v_td[current_v_index,:,:,:].clone()
-                v_next=v_td[current_v_index+1,:,:,:].clone()
+                v_current = v_time_dependent[current_v_index,:,:,:].clone()
+                v_next=v_time_dependent[current_v_index+1,:,:,:].clone()
             remainder=((t*dt)%v_dt)/v_dt
             h = (v_current*(1-remainder) +v_next*remainder) + torch.diag_embed(
                 site_noise[t,:,:].clone()+efull)
@@ -265,7 +274,7 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
                    device="cpu", save_coherence=True, save_u=False,
                    save_multi_pop=False, save_multi_slice=None,
                    mlnise_inputs=None,use_h5=False, constant_v=False,
-                   site_noise=None,v_td=None, v_dt=None):
+                   site_noise=None,v_time_dependent=None, v_dt=None):
     """
     Run NISE propagation with different averaging methods to calculate averaged
     population dynamics.
@@ -303,8 +312,16 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
         constant_v (bool, optional): uses the constant coupling mode, hfull is
             considered to be time independent and the noise is expected to be
             provided via site_noise, the full hamilatonian is then 
-            hfull+diag_embedd(site_noise). Defaults to false
-        site_noise (torch.tensor): shape (steps,realizations,n_sites)
+            hfull+diag_embedd(site_noise).
+            Defaults to false
+        site_noise (torch.tensor): site noise used for constant coupling mode
+            or v_time_dependent mode. Should have shape (steps,realizations,n_sites)
+            Defaults to None.
+        v_time_dependent (torch.tensor): if not None these couplings will be 
+            used with the specified timestep v_dt. Should only be used if v_dt
+            is larger than dt, otherwise use the Full Hamiltonian in hfull.
+            Defaults to None.
+        v_dt (float): timestep for the time dependent coupling.
 
 
     Returns:
@@ -325,7 +342,7 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
                 t_correction="None", device=device, save_u=True,
                 save_coherence=True, use_h5=use_h5,
                 constant_v=constant_v,site_noise=site_noise,
-                v_td=v_td, v_dt=v_dt
+                v_time_dependent=v_time_dependent, v_dt=v_dt
             )
             lifetimes = (estimate_lifetime(u, dt * save_interval) *
                          lifetime_factor)
@@ -335,7 +352,7 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
             temperature, save_interval=save_interval,
             t_correction=t_correction, device=device, save_u=save_u or save_multi_slice,
             save_coherence=True, mlnise_inputs=mlnise_inputs, use_h5=use_h5,
-            constant_v=constant_v,site_noise=site_noise,v_td=v_td, v_dt=v_dt
+            constant_v=constant_v,site_noise=site_noise,v_time_dependent=v_time_dependent, v_dt=v_dt
         )
 
         population_averaged, coherence_averaged = averaging(
@@ -361,7 +378,7 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
              save_multi_pop=False,save_multi_slice=None, save_pop_file=None,
              t_correction="None", mode="Population", mu=None, absorption_padding=10000,
              averaging_method="standard", lifetime_factor=5, max_reps=100000,
-             mlnise_inputs=None, device="cpu", use_h5=False,v_td=None, v_dt=None):
+             mlnise_inputs=None, device="cpu", use_h5=False,v_time_dependent=None, v_dt=None):
     """
     Main function to run NISE simulations for population dynamics or
     absorption spectra.
@@ -407,6 +424,11 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
         use_h5 (bool, optional): saves all tensors that are not currently 
             used to the disk in HDF5 format. reduces memory foorprint at some
             performance cost usually worth it for big systems. Defaults to False
+        v_time_dependent (torch.tensor): if not None these couplings will be 
+            used with the specified timestep v_dt. Should only be used if v_dt
+            is larger than dt, otherwise use the Full Hamiltonian in hfull.
+            Defaults to None.
+        v_dt (float): timestep for the time dependent coupling.
 
     Returns:
         tuple: Depending on mode, returns either (np.ndarray, np.ndarray) for
@@ -518,7 +540,8 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             lifetime_factor=lifetime_factor, device=device, save_u=save_u,
             save_coherence=True, save_multi_pop=save_multi_pop,
             save_multi_slice=save_multi_slice, mlnise_inputs=mlnise_inputs,
-            use_h5=use_h5, constant_v=constant_v,site_noise=site_noise,v_td=v_td, v_dt=v_dt
+            use_h5=use_h5, constant_v=constant_v,site_noise=site_noise,
+            v_time_dependent=v_time_dependent, v_dt=v_dt
         )
 
         if mode.lower() == (

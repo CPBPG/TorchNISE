@@ -40,14 +40,14 @@ def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32):
     spectral_funcs.
     
     Args:
-        shape (tuple): Shape of the output noise array. The first dimension is
-            the number of realizations, the second dimension is the number of
-            steps, and the remaining dimension is the number of sites.
-        dt (float): Time step size.
         spectral_funcs (list(callable)): Must have either len 1 if all sites
             follow the same power spectrum, or len n_sites=shape[-1] to provide a
             separate power spectrum for each site.
-        use_h5 (bool): If True, uses h5 to save memory.
+        dt (float): Time step size.
+        shape (tuple): Shape of the output noise array. The first dimension is
+            the number of realizations, the second dimension is the number of
+            steps, and the remaining dimension is the number of sites.
+        use_h5 (bool): If True, uses h5py to save tensor to disk.
         dtype (torch.dtype): Data type of the output noise array.
     
     Returns:
@@ -185,8 +185,8 @@ def noise_algorithm(shape, dt, spectral_func, axis=-1, sample_dist=None,
 def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
                     discard_half=True, save=False, save_name=None):
     """
-    Generates time-correlated noise following the power spectrum provided in
-    spectral_func.
+    Pytorch vesrsion: Generates time-correlated noise following the power
+    spectrum provided in spectral_func.
     
     Args:
         shape (tuple): Shape of the output noise array.
