@@ -30,7 +30,7 @@ def main():
         dataset=train_ds,
         num_epochs=3,
         num_processes=16,
-        learning_rate=0.05,
+        learning_rate=0.01,
         runname="mlnise_demo_run",
         device=device,
         realizations=100  # or more if you want
