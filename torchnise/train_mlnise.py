@@ -228,7 +228,8 @@ def train_mlnise_hogwild(
         log_fn=print
 
     # Prepare an optimizer
-    optimizer = torch.optim.Adadelta(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
+                                     betas=(0.9, 0.999),weight_decay=1e-5)
     model.share_memory()
     # Optional scheduler (e.g. StepLR)
     scheduler = None

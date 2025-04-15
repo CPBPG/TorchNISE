@@ -30,28 +30,28 @@ def main():
     plt.close()
     # 1) Create a training dataset
     train_ds = MLNiseDrudeDataset(
-        length=50,              # number of random Hamiltonians
-        total_time=100.0,       # total simulation time (fs)
+        length=1000,              # number of random Hamiltonians
+        total_time=1000.0,       # total simulation time (fs)
         dt_fs=1.0,              # timestep (fs)
         n_sites=2,
         seed=1234,              # random seed for reproducibility
         depth=7,
         dataset_folder="GeneratedHeom",
-        dataset_name="mlnise_train_data_smalltest_short",  # will create a subfolder
+        dataset_name="mlnise_train_data",  # will create a subfolder
         generate_if_missing=True
     )
     print(f"Training dataset created with length = {len(train_ds)}")
 
     # 2) Create a testing dataset (shorter or different seed, etc.)
     test_ds = MLNiseDrudeDataset(
-        length=10,
-        total_time=100.0,
+        length=100,
+        total_time=1000.0,
         dt_fs=1.0,
         n_sites=2,
         seed=9999,
         depth=7,
         dataset_folder="GeneratedHeom",
-        dataset_name="mlnise_test_data_smalltest_short",
+        dataset_name="mlnise_test_data",
         generate_if_missing=True
     )
     print(f"Testing dataset created with length = {len(test_ds)}")
