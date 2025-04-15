@@ -12,7 +12,11 @@
 
 - Noise generation following spectral densities, to generate time dependent Hamiltonians.
 
-- Thermal corrections - TNISE and MLNISE: Documentation and Code on how to train and use MLNISE will follow soon. 
+- Thermal corrections - TNISE and MLNISE: 
+
+- Training for MLNISE corrections. 
+
+- Generation of training data sets with pyheom (pyheom installation required, tested with https://github.com/tatsushi-ikeda/pyheom, version 1.0.0a2)
 
 - Averaging - Different Averaging procedures for the thermalized variants as described in "Spectral Densities, Structured Noise and Ensemble Averaging within Open
 Quantum Dynamics".
@@ -79,9 +83,16 @@ We Request the Attributions to be in the form of citing the respective papers.
 - added option to automatically save the population dynamics starting in multiple sites
 - multiple bugfixes and optimizations
 
+### 0.3.0
+
+- added support for MLNISE training
+- weighted averages migrated to Pytorch
+- removed in-place operations to allow for backpropagation
+- added support for generating training sets with pyheom (https://github.com/tatsushi-ikeda/pyheom, version 1.0.0a2)
+
 ## Future plans
 
-- Include documented support for MLNISE training
+- Include detailed documentation for MLNISE training
 
 - Add Tutorials
 
@@ -91,6 +102,7 @@ We Request the Attributions to be in the form of citing the respective papers.
 
 - Migrate remaining NumPy based functions to PyTorch
 (0.2.0 noise generation has been migrated to PyTorch)
+(0.3.0 weighted averages migrated to Pytorch)
 
 ## Completed
 
