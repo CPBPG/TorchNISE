@@ -37,6 +37,7 @@ import sys
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, DistributedSampler
+from torch.nn.utils import clip_grad_norm
 import torch.multiprocessing as mp
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
@@ -159,6 +160,8 @@ def _train_one_epoch(
         for name, param in model.named_parameters():
             if param.grad is not None:
                 if param.requires_grad:
+                    grad_norm = param.grad.norm().item()
+                    #log_fn(f"[GRAD NORM] {name}: {grad_norm:.6f}")
                     if torch.isnan(param.grad).any() or torch.isnan(param.data).any():
                         skip_update = True
                         log_fn(f"[WARN] NaN encountered in {name} -> skipping update.")
@@ -168,11 +171,16 @@ def _train_one_epoch(
                 print(name,param)
 
         if not skip_update:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
             optimizer.step()
         batch_losses.append(loss.item())
         #log_fn(f"Epoch {epoch} | Batch {batch_idx} | Loss: {loss.item():.4f}")
+        
+        if batch_idx%10==0 and len(batch_losses)>=10:
+            avg_loss_last_10 = sum(batch_losses[-10:]) / len(batch_losses[-10:]) if batch_losses else 0.0
+            log_fn(f"Process {process_num} | Epoch {epoch} | Batch {batch_idx-10}-{batch_idx} | Avg Loss: {avg_loss_last_10:.4f}")
     avg_loss = sum(batch_losses) / len(batch_losses) if batch_losses else 0.0
-    log_fn(f"Epoch {epoch} complete | Avg Loss: {avg_loss:.4f}")
+    log_fn(f"Process {process_num} | Epoch {epoch} complete | Avg Loss: {avg_loss:.4f}")
 
 
 
