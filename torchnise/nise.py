@@ -611,10 +611,10 @@ class MLNISEModel(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(8, 75)
-        self.fc2 = nn.Linear(75, 75)
-        self.fc3 = nn.Linear(75, 75)
-        self.fc4 = nn.Linear(75, 1)
+        self.fc1 = nn.Linear(8, 25)
+        self.fc2 = nn.Linear(25, 25)
+        self.fc3 = nn.Linear(25, 25)
+        self.fc4 = nn.Linear(25, 1)
 
     def forward(self, mlnise_inputs, de, kbt, phi_b, s, jj, ii, realizations,
                 device="cpu"):

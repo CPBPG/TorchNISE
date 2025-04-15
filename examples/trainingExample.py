@@ -21,7 +21,7 @@ def main():
     # 2) Instantiate the MLNISE model
     model = MLNISEModel()
     model.share_memory()  # needed for Hogwild multi-process
-
+    model.load_state_dict(torch.load("mlnise_model_final4.pt"))
     # 3) Train with Hogwild
     #    We do a small example with fewer epochs. Adjust as needed.
     device = torch.device("cpu")  # or "cuda" if you have a GPU
@@ -30,15 +30,15 @@ def main():
         dataset=train_ds,
         num_epochs=3,
         num_processes=16,
-        learning_rate=0.01,
+        learning_rate=0.0005,
         runname="mlnise_demo_run",
         device=device,
         realizations=100  # or more if you want
     )
 
     # 4) Save final model weights
-    torch.save(trained_model.state_dict(), "mlnise_model_final.pt")
-    print("Training complete. Model saved to 'mlnise_model_final.pt'.")
+    torch.save(trained_model.state_dict(), "mlnise_model_final5.pt")
+    print("Training complete. Model saved to 'mlnise_model_final5.pt'.")
 
 if __name__ == "__main__":
     main()
