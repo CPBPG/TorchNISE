@@ -31,7 +31,9 @@ Example usage in a separate script:
         realizations=1  # or however many you want
     )
 """
-
+import contextlib
+import os
+import sys
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, DistributedSampler
@@ -40,9 +42,30 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 from typing import Optional, Callable
 import functools
+import tqdm
 
 from torchnise.nise import run_nise
 from torchnise.spectral_functions import spectral_drude
+
+
+@contextlib.contextmanager
+def suppress_stdout():
+    old_stdout = sys.stdout
+    tqdm_backup = tqdm.tqdm
+
+    def silent_tqdm(*args, **kwargs):
+        return tqdm_backup(*args, disable=True, **kwargs)
+
+    with open(os.devnull, "w") as devnull:
+        sys.stdout = devnull
+        tqdm.tqdm = silent_tqdm
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
+            tqdm.tqdm = tqdm_backup
+
+
 
 def _train_one_epoch(
     model: torch.nn.Module,
@@ -51,7 +74,8 @@ def _train_one_epoch(
     optimizer: Optimizer,
     epoch: int,
     realizations: int,
-    log_fn: Optional[Callable[[str], None]] = None
+    log_fn: Optional[Callable[[str], None]] = None,
+    process_num: Optional[int] = 0
 ) -> None:
     """
     Performs one epoch of training on a single worker (process) in Hogwild mode.
@@ -71,10 +95,11 @@ def _train_one_epoch(
 
     model.train()
     if log_fn is None:
-        def log_fn(msg: str) -> None:
-            print(msg)
-
-    for batch_idx, (inputs, pop_target) in enumerate(train_loader):
+        log_fn=print
+    #with torch.autograd.set_detect_anomaly(True):
+    batch_losses = []
+    for batch_idx, (inputs, pop_target) in (tqdm.tqdm(enumerate(train_loader),total=len(train_loader)) 
+                                if process_num==0 else enumerate(train_loader)):
         """
         inputs = (H, T, E_reorg, tau, total_time, dt, psi0, n_sites)
             - H: (n_sites, n_sites), for a static Hamiltonian,
@@ -86,9 +111,10 @@ def _train_one_epoch(
         """
         # Move them to the device
         (h, temperature, E_reorg, tau, total_time, dt_fs, psi0, n_sites) = [
-            x.to(device) for x in inputs
+            x.to(device).squeeze(0) for x in inputs
         ]
-        pop_target = pop_target.to(device)
+        #print(h)
+        pop_target = pop_target.to(device).squeeze(0).requires_grad_()
 
         # Prepare MLNISE model inputs:
         reorg_float = E_reorg.item()
@@ -99,27 +125,30 @@ def _train_one_epoch(
         )
         gamma = 1 / tau
         spectral_func = functools.partial(spectral_drude,temperature=temperature,
-                                           stenght=reorg_float, gamma=gamma)
+                                        strength=reorg_float, gamma=gamma)
         spectral_funcs = [spectral_func]*n_sites
         # Use run_nise to get predicted populations
-        pop_pred, t_axis = run_nise(
-            h=h,
-            realizations=realizations,
-            total_time=total_time.item(),
-            dt=dt_fs.item(),
-            initial_state=psi0,
-            temperature=temperature.item(),
-            spectral_funcs=spectral_funcs,
-            t_correction="MLNISE",
-            mode="Population",
-            device=device,
-            mlnise_model=model,       # important for the correction
-            mlnise_inputs=mlnise_inputs
-        )
+        with suppress_stdout():
+            pop_pred, t_axis = run_nise(
+                h=h,
+                realizations=realizations,
+                total_time=total_time.item(),
+                dt=dt_fs.item(),
+                initial_state=psi0,
+                temperature=temperature.item(),
+                spectral_funcs=spectral_funcs,
+                t_correction="MLNISE",
+                mode="Population",
+                device=device,
+                mlnise_model=model,       # important for the correction
+                mlnise_inputs=mlnise_inputs
+            )
         # pop_pred has shape (time_steps, n_sites).
 
         # Match length if there's any off-by-one
         min_len = min(pop_pred.shape[0], pop_target.shape[0])
+        #print(pop_pred.shape)
+        #print(pop_target.shape)
         loss = F.mse_loss(pop_pred[:min_len], pop_target[:min_len])
 
         optimizer.zero_grad()
@@ -128,23 +157,29 @@ def _train_one_epoch(
         # Check for NaNs
         skip_update = False
         for name, param in model.named_parameters():
-            if param.requires_grad:
-                if torch.isnan(param.grad).any() or torch.isnan(param.data).any():
-                    skip_update = True
-                    log_fn(f"[WARN] NaN encountered in {name} -> skipping update.")
-                    break
+            if param.grad is not None:
+                if param.requires_grad:
+                    if torch.isnan(param.grad).any() or torch.isnan(param.data).any():
+                        skip_update = True
+                        log_fn(f"[WARN] NaN encountered in {name} -> skipping update.")
+                        break
+                
+            else:
+                print(name,param)
 
         if not skip_update:
             optimizer.step()
+        batch_losses.append(loss.item())
+        #log_fn(f"Epoch {epoch} | Batch {batch_idx} | Loss: {loss.item():.4f}")
+    avg_loss = sum(batch_losses) / len(batch_losses) if batch_losses else 0.0
+    log_fn(f"Epoch {epoch} complete | Avg Loss: {avg_loss:.4f}")
 
-        log_fn(f"Epoch {epoch} | Batch {batch_idx} | Loss: {loss.item():.4f}")
 
 
 def train_mlnise_hogwild(
     model: torch.nn.Module,
     dataset: torch.utils.data.Dataset,
     num_epochs: int = 10,
-    batch_size: int = 100,
     num_processes: int = 4,
     learning_rate: float = 0.1,
     runname: str = "testrun",
@@ -166,7 +201,6 @@ def train_mlnise_hogwild(
         dataset (Dataset): The dataset from which samples are drawn 
             (e.g. MLNiseDrudeDataset).
         num_epochs (int, optional): Number of epochs to train. Defaults to 10.
-        batch_size (int, optional): Batch size per worker. Defaults to 100.
         num_processes (int, optional): Number of parallel processes for Hogwild. Defaults to 4.
         learning_rate (float, optional): Initial learning rate. Defaults to 0.1.
         runname (str, optional): Name of the training run (used in logs). Defaults to "testrun".
@@ -191,12 +225,11 @@ def train_mlnise_hogwild(
         device = torch.device("cpu")
 
     if log_fn is None:
-        def log_fn(msg: str) -> None:
-            print(msg)
+        log_fn=print
 
     # Prepare an optimizer
     optimizer = torch.optim.Adadelta(model.parameters(), lr=learning_rate)
-
+    model.share_memory()
     # Optional scheduler (e.g. StepLR)
     scheduler = None
     if scheduler_class is not None:
@@ -208,32 +241,46 @@ def train_mlnise_hogwild(
     for epoch in range(1, num_epochs + 1):
         log_fn(f"===== Starting epoch {epoch}/{num_epochs} =====")
         log_fn(f"Runname: {runname}")
+        if num_processes>1:
+            # Hogwild: spawn multiple processes, each with a DistributedSampler
+            processes = []
+            for rank in range(num_processes):
+                sampler = DistributedSampler(
+                    dataset=dataset,
+                    num_replicas=num_processes,
+                    rank=rank,
+                    shuffle=True,
+                    seed=123+epoch 
+                )
+                train_loader = DataLoader(
+                    dataset=dataset,
+                    sampler=sampler,
+                    batch_size=1
+                )
 
-        # Hogwild: spawn multiple processes, each with a DistributedSampler
-        processes = []
-        for rank in range(num_processes):
+                p = mp.Process(
+                    target=_train_one_epoch,
+                    args=(model, device, train_loader, optimizer, epoch, realizations, log_fn, rank)
+                )
+                p.start()
+                processes.append(p)
+
+            for p in processes:
+                p.join()
+        else:
             sampler = DistributedSampler(
-                dataset=dataset,
-                num_replicas=num_processes,
-                rank=rank,
-                shuffle=True,
-                seed=123  # or configure as you like
-            )
+                    dataset=dataset,
+                    num_replicas=num_processes,
+                    rank=0,
+                    shuffle=True,
+                    seed=123  # or configure as you like
+                )
             train_loader = DataLoader(
                 dataset=dataset,
                 sampler=sampler,
-                batch_size=batch_size
+                batch_size=1
             )
-
-            p = mp.Process(
-                target=_train_one_epoch,
-                args=(model, device, train_loader, optimizer, epoch, realizations, log_fn)
-            )
-            p.start()
-            processes.append(p)
-
-        for p in processes:
-            p.join()
+            _train_one_epoch(model, device, train_loader, optimizer, epoch, realizations, log_fn)
 
         # Scheduler step
         if scheduler is not None:

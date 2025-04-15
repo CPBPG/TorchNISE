@@ -28,13 +28,12 @@ def main():
     trained_model = train_mlnise_hogwild(
         model=model,
         dataset=train_ds,
-        num_epochs=5,
-        batch_size=5,
-        num_processes=2,
-        learning_rate=0.1,
+        num_epochs=3,
+        num_processes=16,
+        learning_rate=0.05,
         runname="mlnise_demo_run",
         device=device,
-        realizations=1  # or more if you want
+        realizations=100  # or more if you want
     )
 
     # 4) Save final model weights

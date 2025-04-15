@@ -11,6 +11,7 @@ import os
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+import tqdm
 # Attempt to import PyHEOM; if unavailable, dataset generation will fail unless pre-generated data is present.
 try:
     import pyheom
@@ -111,11 +112,12 @@ def runHeomDrude(
     rho = np.zeros((n_storage,n_state,n_state), dtype=dtype)
     rho_0 = rho[0,:,:]
     rho_0[0,0] = 1
-
-    callback_interval = 1
+    callback_interval = 2
+    dt__unit = float(dt__unit)/callback_interval
+    
     count = int(totalTime / dt__unit) + 1
-    t_list= np.arange(0, count, callback_interval)
-    population = np.zeros((count, n_state), dtype=np.float32)
+    t_list= np.arange(0, count, callback_interval)*dt__unit
+    population = np.zeros((len(t_list), n_state), dtype=np.float32)
     solver_params    = dict(
     dt = dt__unit,
     # atol=1e-6, rtol=1e-3
@@ -123,13 +125,14 @@ def runHeomDrude(
     
     def callback(t):
         idx = round(t / (dt__unit*pyheom.calc_unit() )/ callback_interval)
-        idx_non_int=t / (dt__unit*pyheom.calc_unit() )/ callback_interval
+        #idx_non_int=t / (dt__unit*pyheom.calc_unit() )/ callback_interval
         #print(idx,idx_non_int,t, rho_0[0,0].real, rho_0[1,1].real)
         
         pop=np.zeros(n_state)
-        for i in range(n_state):
-            population[idx, i] = rho_0[i,i].real
-            pop[i]= rho_0[i,i].real
+        if idx<len(t_list):
+            for i in range(n_state):
+                population[idx, i] = rho_0[i,i].real
+                pop[i]= rho_0[i,i].real
         
     
 
@@ -251,6 +254,8 @@ class MLNiseDrudeDataset(Dataset):
         self.resultTemp = np.load(self.temp_file)
         self.resultEReorg = np.load(self.reorg_file)
         self.resultTau = np.load(self.tau_file)
+        self.length = self.resultH.shape[0]
+        self.total_time = self.resultPop.shape[1]
 
     def _save_data(self) -> None:
         """Save dataset to .npy files."""
@@ -282,7 +287,7 @@ class MLNiseDrudeDataset(Dataset):
         self.resultEReorg = np.zeros((self.length,), dtype=np.float32)
         self.resultTau = np.zeros((self.length,), dtype=np.float32)
 
-        for idx in range(self.length):
+        for idx in tqdm.tqdm(range(self.length)):
             tau_sample = np.random.uniform(self.min_tau, self.max_tau)
             temp_sample = np.random.uniform(self.min_temp, self.max_temp)
             reorg_sample = np.random.uniform(self.min_reorg, self.max_reorg)
@@ -359,7 +364,7 @@ class MLNiseDrudeDataset(Dataset):
         n_sites_torch = torch.tensor([self.n_sites], dtype=torch.int32)
 
         inputs = (
-            h_torch,      # (time_steps, n_sites, n_sites)
+            h_torch,      # (n_sites, n_sites)
             T_torch,      # (1,)
             reorg_torch,  # (1,)
             tau_torch,    # (1,)
