@@ -44,19 +44,47 @@ def renorm(phi: torch.Tensor, eps: float = 1e-8, dim: int = -1) -> torch.Tensor:
     # Calculate the inner product along the specified dimension
     inner_product = torch.sum(phi.conj() * phi, dim=dim, keepdim=True)
 
-    # Create a mask where the real part of the inner product is greater than
-    # the threshold
+    # Create a mask where the real part of the inner product is greater than eps
     mask = inner_product.real > eps
 
-    # Calculate the square root of the inner product for renormalization
+    # Safe sqrt with masking
     sqrt_inner_product = torch.sqrt(inner_product.real)
-
-    # Avoid division by zero by setting values where the mask is False to 1
-    sqrt_inner_product[~mask] = 1.0
+    sqrt_inner_product = torch.where(mask, sqrt_inner_product, torch.ones_like(sqrt_inner_product))
 
     # Renormalize phi
-    phi = phi / sqrt_inner_product
-    return phi
+    phi_new = phi / sqrt_inner_product
+    return phi_new
+
+
+def weighted_mean(tensor: torch.Tensor, weights: torch.Tensor, dim=0) -> torch.Tensor:
+    """
+    Compute the weighted mean of 'tensor' along dimension 'dim' using
+    'weights' as the weights for each slice along 'dim'.
+
+    Args:
+        tensor (torch.Tensor): Input data of shape (..., N, ...)
+        weights (torch.Tensor): 1D weights of shape (N,).
+        dim (int): The dimension along which to apply the weights.
+
+    Returns:
+        torch.Tensor: Weighted average along dimension 'dim'.
+    """
+    # Ensure weights is float and on the same device
+    weights = torch.tensor(weights,dtype=tensor.dtype, device=tensor.device)
+
+    # Sum of all weights
+    w_sum = weights.sum()
+
+    # Reshape weights to broadcast along the specified dimension
+    # For instance, if dim=0 and weights.size= (N,),
+    # we reshape weights to (N, 1, 1, ...)
+    shape = [1]*tensor.ndim
+    shape[dim] = -1  # place weights along 'dim'
+    w_view = weights.reshape(*shape)
+
+    # Weighted sum along 'dim'
+    weighted_sum = (tensor * w_view).sum(dim=dim)
+    return weighted_sum / w_sum
 
 
 def matrix_logh(A: torch.Tensor, dim1: int = -1, dim2: int = -2,

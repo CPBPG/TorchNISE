@@ -9,6 +9,7 @@ import torch
 import tqdm
 from torchnise.pytorch_utility import H5Tensor
 from torchnise import units
+import warnings
 #inspired by https://stackoverflow.com/a/64288861
 def inverse_sample(dist, shape, x_min=-100, x_max=100, n=1e5, **kwargs):
     """
@@ -233,7 +234,8 @@ def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
     freq_bins = torch.fft.fftfreq(shape[axis], dt * units.T_UNIT) * 2 * np.pi
 
     # Envelope the frequencies with the spectral function
-    spectral_density = torch.sqrt(torch.tensor(spectral_func(freq_bins)))
+    with warnings.catch_warnings(action="ignore"):
+        spectral_density = torch.sqrt(torch.tensor(spectral_func(freq_bins)))
     reshaped_spectral_density = spectral_density.reshape(
                                            [1 if dim != axis else
                                             len(spectral_density)
