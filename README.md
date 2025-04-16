@@ -63,7 +63,7 @@ See the `examples/` folder for hands-on demonstrations:
 -  **Diffusion Simulations**:  
   `Diffusion_example.py`
 
--**Spectral Density Reconstruction**
+- **Spectral Density Reconstruction**
   `SD_reconstruction_Example.py`
 
 -  **MLNISE Training**:  
