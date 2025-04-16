@@ -45,9 +45,23 @@ pip install .
 
 ## Usage
 
-2 Example Scripts can be found in the example folder and serve as a starting point.
+7 Example Scripts can be found in the examples folder and serve as a starting point.
 
-Documentation is available in HTML format and a print-to-pdf version of the HTML.
+To run NISE for population dynamics and absorption see Population_Dynamics_And_Absorption_Example.py
+
+To run Nise with a numerical spectral density see Population_Dynamics_numerical_SD.py
+
+To calculate Diffusion based on NISE see Diffusion_example.py
+
+For generating training datasets you need to install pyheom (tested with https://github.com/tatsushi-ikeda/pyheom, version 1.0.0a2))
+
+Run create_datasets_example.py to create the training sets
+
+Run training_example.py to train your model
+
+Run compare_TNISE_MLNISE_example.py to get a comparison of the performance of TNISE MLNISE NISE compared to HEOM for the test set
+
+Documentation is available in pdf version.
 
 It is generated with sphinx based on the doc strings which are partially AI generated. Please raise an Issue for any inconsistencies in the documentation.
 
