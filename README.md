@@ -23,7 +23,7 @@
 Gradients can be automatically calculated throughout all calculations. This can be used to train MLNISE models, but many other applications are thinkable. One could use this e.g. to get the gradient of the error between the calculated and an experimental spectral density with respect to the average Hamiltonian. One could then optimize the Hamiltonian so that it matches an experimental absorption spectrum.
 -  **GPU Acceleration**: Especially effective for large systems
 
-As most of the code is build on top of the pytorch package, which can delegate calculations to the GPU, TorchNISE can also be run on the GPU. The GPU calculations are currently mostly bottlenecked by the PyTorch implementation of eigh. In our testing - with our hardware - we only found GPU acceleration to be useful for very large Hamiltonians for NISE and TNISE. 
+As most of the code is build on top of the pytorch package, which can delegate calculations to the GPU, TorchNISE can also be run on the GPU. The GPU calculations are currently mostly bottlenecked by the PyTorch implementation of `eigh`. In our testing - with our hardware - we only found GPU acceleration to be useful for very large Hamiltonians for NISE and TNISE. 
 -  **Efficient Realizations** via PyTorch batched ops instead of loops
 
 In TorchNISE the realizations are calculated as batched PyTorch operationsl rather than parallel for loops. This improves speed as the calculations are otherwise bottlenecked by cache and memory access. By saving on memory and cache operations, the calculation time actually increases less than linearly with the number of realizations in this way.
