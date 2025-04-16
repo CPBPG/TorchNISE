@@ -21,14 +21,14 @@ Example usage in a separate script:
 
     # Train
     trained_model = train_mlnise_hogwild(
-        model=model,
-        dataset=dataset,
-        num_epochs=20,
-        batch_size=10,
-        num_processes=4,
-        learning_rate=0.1,
-        runname="testrun",
-        realizations=1  # or however many you want
+    model=model,
+    dataset=dataset,
+    num_epochs=20,
+    batch_size=10,
+    num_processes=4,
+    learning_rate=0.1,
+    runname="testrun",
+    realizations=1  # or however many you want
     )
 """
 import contextlib

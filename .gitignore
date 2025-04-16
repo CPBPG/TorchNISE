@@ -79,6 +79,7 @@ instance/
 .scrapy
 
 # Sphinx documentation
+docs/ipython_config
 docs/_build/
 doc/_build/
 _build/
