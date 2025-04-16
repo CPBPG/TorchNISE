@@ -20,7 +20,7 @@
 -  **Averaging Strategies**: Standard, Boltzmann, and Interpolated as described in [here](https://doi.org/10.1063/5.0224807) 
 -  **Fully Differentiable**: Backpropagation-compatible with PyTorch autograd.
 
-Gradients can be automatically calculated throughout all calculations. This can be used to train MLNISE models, but many other applications are thinkable. One could use this e.g. to get the gradient of the error between the calculated and an experimental spectral density with respect to the average Hamiltonian. One could then optimize the Hamiltonian so that it matches an experimental spectral density.
+Gradients can be automatically calculated throughout all calculations. This can be used to train MLNISE models, but many other applications are thinkable. One could use this e.g. to get the gradient of the error between the calculated and an experimental spectral density with respect to the average Hamiltonian. One could then optimize the Hamiltonian so that it matches an experimental absorption spectrum.
 -  **GPU Acceleration**: Especially effective for large systems
 
 As most of the code is build on top of the pytorch package, which can delegate calculations to the GPU, TorchNISE can also be run on the GPU. The GPU calculations are currently mostly bottlenecked by the PyTorch implementation of eigh. In our testing - with our hardware - we only found GPU acceleration to be useful for very large Hamiltonians for NISE and TNISE. 
