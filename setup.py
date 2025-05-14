@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="torchnise",
-    version="0.3.1",
+    version="0.3.2",
     author="Yannick Holkamp, Emiliano Godinez, Ulrich Kleinekathöfer",
     author_email="yholtkamp@constructor.university",
     description="several nise extensions. ",
@@ -20,12 +20,11 @@ setup(
     ],
     python_requires='>=3.10',
     install_requires=[
-        "matplotlib~=3.9",
-        "numpy==1.26.4",
-        "scipy==1.14.0",
-        "torch==2.2.2",
-        "torchvision==0.17.2",
-        "tqdm==4.66.4",
+        "matplotlib",
+        "numpy",
+        "scipy",
+        "torch>=2.2.2",
+        "tqdm",
         "h5py"
     ],
 )

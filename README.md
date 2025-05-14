@@ -101,6 +101,8 @@ Feel free to use and adapt, but please cite the original papers:
 ---
 
 ## 🛠️ Changelog
+### v0.3.2
+- Avoid GPU memory overflow during noise gen, further gpu otimizations
 ### v0.3.1
 - GPU now better supported, it also runs faster for small systems with many realizations.
 ### v0.3.0

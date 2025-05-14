@@ -83,7 +83,6 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         hfull=hfull.reshape((1,n_sites,n_sites))
     factor = 1j * 1 / units.HBAR * dt * units.T_UNIT
     kbt = temperature * units.K
-
     total_steps = int(total_time / dt) + 1
     total_steps_saved = int(total_time / dt / save_interval) + 1
     if use_h5:
@@ -171,8 +170,8 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         else:
             h = hfull[t, :, :, :].clone().to(device=device)
         #[all realizations : t'th timestep  : all sites : all sites]
-        if using_cuda:
-            torch.cuda.empty_cache()
+        #if using_cuda:
+        #    torch.cuda.empty_cache()
         e, c = torch.linalg.eigh(h)
         
         #multiply the old with the new transition matrix to get the
@@ -223,44 +222,56 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
 def apply_t_correction(s, n_sites, realizations, device, e, eold,
                        t_correction, kbt, mlnise_model, mlnise_inputs,
                        phi_b, aranged_realizations):
-    # 1) Clone s to avoid in-place
+    # s: (R, J, I)    R = realizations, J = n_sites, I = n_sites
+    R, J, I = s.shape
+
+    # 1) clone once
     s_new = s.clone()
 
-    for ii in range(n_sites):
-        max_c = torch.max(s_new[:, :, ii].real ** 2, 1)
-        kk = max_c.indices
-        cd = torch.zeros(realizations, device=device)
+    # 2) find the "winning" channel kk for each (r,i)
+    #    mag2 = |s|^2  →  (R,J,I)
+    mag2 = s_new.abs().pow(2)
+    #    kk[r, i] = argmax_j  mag2[r, j, i]   → (R, I)
+    kk = mag2.argmax(dim=1)
 
-        for jj in range(n_sites):
-            de = e[:, jj] - eold[:, ii]
-            de[jj == kk] = 0
+    # 3) build a one-hot mask for those maxima → (R,J,I)
+    mask_max = F.one_hot(kk, num_classes=J) \
+                 .permute(0,2,1) \
+                 .to(torch.bool)
 
-            if t_correction == "TNISE":
-                correction = torch.exp(-de / kbt / 4)
-            else:
-                correction = mlnise_model(
-                    mlnise_inputs, de, kbt, phi_b, s_new, jj, ii,
-                    realizations, device=device
-                )
+    # 4) construct the full delta-energy tensor de[r,j,i] = e[r,j] - eold[r,i]
+    #    then zero out the "winning" channels
+    de = e.unsqueeze(2) - eold.unsqueeze(1)      # (R,J,I)
+    de = de.masked_fill(mask_max, 0.0)
 
-            # A) out-of-place fix
-            temp_slice = s_new[:, jj, ii].clone() * correction
-            s_new[:, jj, ii] = temp_slice
+    # 5) compute the correction factor in one shot
+    if t_correction == "TNISE":
+        correction = torch.exp(-de/(kbt*4))
+    else:
+        # if you have a model that supports batching over the full (R,J,I) tensor you can do:
+        correction = mlnise_model(mlnise_inputs, de, kbt, phi_b, s_new)
 
-            add_cd = s_new[:, jj, ii].clone() ** 2
-            add_cd[jj == kk] = 0
-            cd = cd + add_cd
+    # 6) apply it in one broadcasted multiply
+    s_new = s_new * correction                   # (R,J,I)
 
-        # B) out-of-place fix
-        index_mask = (1 - cd) > 0
-        if index_mask.any():
-            slice_temp = s_new[index_mask, kk[index_mask], ii]
-            slice_new = (
-                torch.sqrt(1 - cd[index_mask]) * slice_temp /
-                torch.abs(s_new[index_mask, kk[index_mask], ii]) # or norm
-            )
-            # or carefully incorporate 'norm' if you define it above
-            s_new[index_mask, kk[index_mask], ii] = slice_new
+    # 7) rebuild the cross‐term cd[r,i] = sum_{j≠kk} |s_new[r,j,i]|^2
+    squared = s_new.abs().pow(2)
+    cd = (squared * (~mask_max)).sum(dim=1)       # (R,I)
+
+    # 8) compute how much room we have left: norm[r,i] = sqrt(max(1 - cd,0))
+    slack     = (1.0 - cd).clamp(min=0.0)         # (R,I)
+    norm_phase= s_new / s_new.abs().clamp(min=1e-12)  # (R,J,I)
+    norm      = torch.sqrt(slack)                # (R,I)
+
+    # 9) build the new maxima values and scatter them back
+    new_max = (norm.unsqueeze(1) *               # (R,1,I)
+               torch.gather(norm_phase, 1, kk.unsqueeze(1)))  # (R,1,I)
+    # only update those entries where slack > 0
+    update_mask = mask_max & (slack.unsqueeze(1) > 0)
+
+    s_new = torch.where(update_mask,
+                        new_max,  # broadcast (R,1,I) → (R,J,I) under mask
+                        s_new)
 
     return s_new
 
@@ -548,12 +559,18 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             chunk_hfull, site_noise = generate_hfull_chunk(chunk_reps, start_index=i,
                                             window=window, shuffled_indices=shuffled_indices)
             print("Running calculation")
+            save_coherence = False
+            if mode.lower() == (
+                    "population" and t_correction.lower() in ["mlnise", "tnise"]
+                    and averaging_method in ["interpolated", "boltzmann"]):
+                print("Saving coherence")
+                save_coherence = True
             pop_avg, coherence_avg, u, lifetimes, multi_pop = nise_averaging(
                 chunk_hfull, chunk_reps, initial_state, total_time, dt,
                 temperature, save_interval=save_interval,
                 t_correction=t_correction, averaging_method=averaging_method,
                 lifetime_factor=lifetime_factor, device=device, save_u=save_u,
-                save_coherence=True, save_multi_pop=save_multi_pop,
+                save_coherence=save_coherence, save_multi_pop=save_multi_pop,
                 save_multi_slice=save_multi_slice, mlnise_inputs=mlnise_inputs,
                 mlnise_model = mlnise_model, use_h5=use_h5, constant_v=constant_v,
                 site_noise=site_noise, v_time_dependent=v_time_dependent, v_dt=v_dt

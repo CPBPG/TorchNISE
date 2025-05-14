@@ -7,7 +7,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 import torch
 import tqdm
-from torchnise.pytorch_utility import H5Tensor
+from torchnise.pytorch_utility import H5Tensor, tensor_bytes,free_vram
 from torchnise import units
 import warnings
 #inspired by https://stackoverflow.com/a/64288861
@@ -76,9 +76,14 @@ def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32,device="cpu"
         noise = torch.zeros(shape, dtype=dtype,device="cpu")
     if len(spectral_funcs) == 1:
         for i in range(n_sites):
-            noise[:, :, i] = noise_algorithm_torch((steps, reals), dt,
-                                                   spectral_funcs[0], axis=0,
-                                                   dtype=dtype,device=device).cpu()
+            if torch.device(device).type=="cuda":
+                noise2[i, :,:] = safe_noise_gen_gpu((steps,reals), dt,
+                                                spectral_funcs[0], axis=0,
+                                                dtype=dtype, device=device).cpu()
+            else:
+                noise2[i, :,:] = noise_algorithm_torch((steps,reals), dt,
+                                                spectral_funcs[0], axis=0,
+                                                dtype=dtype,device=device).cpu()
         return noise
 
     if len(spectral_funcs) == n_sites:
@@ -86,7 +91,7 @@ def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32,device="cpu"
 
             for i in tqdm.tqdm(range(n_sites)):
                 noise2[i, :,:] = noise_algorithm_torch((reals,steps), dt,
-                                                spectral_funcs[i], axis=1).squeeze()
+                                                spectral_funcs[i], axis=0).squeeze()
             # Iterate over timesteps in chunks
             for s in tqdm.tqdm(range(0, steps, 10000)):
                 s_end = min(s + 10000, steps)
@@ -106,7 +111,12 @@ def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32,device="cpu"
             os.remove(filepath2)
         else:
             for i in tqdm.tqdm(range(n_sites),desc="Noise gen site"):
-                noise[:, :, i] = noise_algorithm_torch((steps, reals), dt,
+                if torch.device(device).type=="cuda":
+                    noise[:, :, i] = safe_noise_gen_gpu((steps, reals), dt,
+                                                   spectral_funcs[i], axis=0,
+                                                   dtype=dtype, device=device).cpu()
+                else:
+                    noise[:, :, i] = noise_algorithm_torch((steps, reals), dt,
                                                    spectral_funcs[i], axis=0,
                                                    dtype=dtype,device=device).cpu()
         return noise
@@ -186,6 +196,8 @@ def noise_algorithm(shape, dt, spectral_func, axis=-1, sample_dist=None,
 
     return time_domain_noise
 
+
+
 def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
                     discard_half=True, save=False, save_name=None
                     ,dtype=torch.float32,device="cpu"):
@@ -264,6 +276,77 @@ def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
     # Save the noise array if required
     if save and save_name:
         torch.save(save_name, time_domain_noise)
-    if time_domain_noise.device.type=="cuda":
+    if torch.device(device).type=="cuda":
         torch.cuda.empty_cache()
     return time_domain_noise
+
+
+def safe_noise_gen_gpu(shape, dt, spec_func, axis=0,
+                   dtype=torch.float32, device="cuda",
+                   safety=0.8):
+    """
+    Generates time-correlated noise using the FFT method, ensuring that the
+    generated noise fits into the GPU memory. If the noise does not fit,
+    it generates the noise in chunks along the realizations axis and returns
+    the concatenated result on CPU memory.
+    Args:
+        shape (tuple): Shape of the output noise array.
+        dt (float): Time step size.
+        spec_func (callable): Function that defines the power spectrum of
+            the noise.
+        axis (int, optional): The axis along which the noise should be
+            correlated. Default is 0.
+        dtype (torch.dtype, optional): Data type of the output noise array.
+            Defaults to torch.float32.
+        device (str or int, optional): GPU device number or "cuda" for default.
+            Defaults to "cuda".
+        safety (float, optional): Safety margin for GPU memory usage. Default
+            is 0.8.
+    """
+    steps, reals = shape
+    torch.cuda.empty_cache()
+    if will_fit((steps, reals), dtype, device, safety):
+        return noise_algorithm_torch((steps, reals), dt, spec_func,
+                                     axis=axis, dtype=dtype, device=device)
+    else:
+        # Generate in chunks along the realizations axis
+        parts = []
+        num_chunks = ((tensor_bytes((steps, reals), dtype=dtype)*(21.0/100.0)//
+                       (free_vram(device=device)*safety/100))  )+1
+        #/100 in nominator and denumerator to avoid overflow
+        if num_chunks > reals:
+            warnings.warn("even a single realization does not fit safelz into " \
+            "dedicated GPU memory. Might use system memory instead or fail.")
+            num_chunks = reals
+        print(f"Splitting noise_gen into {num_chunks} chunks of size " \
+              f"{reals // num_chunks} to avoide GPU memory overflow")
+        
+        chunk_size = int(reals / num_chunks)
+        for i in range(0, reals, chunk_size):
+            r = min(chunk_size, reals - i)
+            part = noise_algorithm_torch((steps, r), dt, spec_func,
+                                         axis=axis, dtype=dtype,
+                                         device=device)
+            parts.append(part.cpu())  # move to keep VRAM clear
+            part=None
+            torch.cuda.empty_cache()
+        return torch.cat(parts, dim=1)
+    
+def will_fit(shape, dtype=torch.float32, device=0, safety_factor=0.8):
+    """
+    Check if a tensor of the given shape and dtype will fit in the available VRAM.
+    Args:
+        shape (tuple): Shape of the tensor.
+        dtype (torch.dtype): Data type of the tensor. Default is torch.float32.
+        device (int or string): The index of the GPU device or 
+                                "cuda" to get the Default "cuda device".
+                                Default is 0.
+        safety_factor (float): Safety factor to account for other memory usage. 
+                                Default is 0.8.
+    Returns:
+        bool: True if the tensor will fit, False otherwise.
+    """
+    needed = tensor_bytes(shape, dtype) * (21.0/100.0)  # observed that the noise gen takes
+    # 21 times the size of the tensor in memory 100 is to avoid overflow of needed value
+    available = free_vram(device) * (safety_factor/100.0)
+    return needed <= available

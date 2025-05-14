@@ -28,6 +28,8 @@ numpy_to_torch_dtype_dict = {
     # Dict of torch dtype -> NumPy dtype
 torch_to_numpy_dtype_dict = {value : key for (key, value) in numpy_to_torch_dtype_dict.items()}
 
+
+
 # Utility Functions
 def renorm(phi: torch.Tensor, eps: float = 1e-8, dim: int = -1) -> torch.Tensor:
     """
@@ -54,6 +56,34 @@ def renorm(phi: torch.Tensor, eps: float = 1e-8, dim: int = -1) -> torch.Tensor:
     # Renormalize phi
     phi_new = phi / sqrt_inner_product
     return phi_new
+
+def free_vram(device=0):
+    """
+    Returns the free memory in bytes of the specified GPU device.
+    Args:
+        device (int or string): The index of the GPU device or 
+                                "cuda" to get the Default "cuda device".
+                                Default is 0.
+    Returns:
+        int: Free memory in bytes.
+    """
+    total    = torch.cuda.get_device_properties(device).total_memory
+    reserved = torch.cuda.memory_reserved(device)
+    allocated= torch.cuda.memory_allocated(device)
+    return total - (reserved + allocated)
+
+def tensor_bytes(shape, dtype):
+    """
+    Calculate the number of bytes required to store a tensor with 
+    the given shape and dtype.
+    Args:
+        shape (tuple): Shape of the tensor.
+        dtype (torch.dtype): Data type of the tensor.
+    Returns:
+        int: Number of bytes required to store the tensor.
+    """
+    # number of elements × bytes per element
+    return np.prod(shape) * torch.tensor([], dtype=dtype).element_size()
 
 
 def weighted_mean(tensor: torch.Tensor, weights: torch.Tensor, dim=0) -> torch.Tensor:
