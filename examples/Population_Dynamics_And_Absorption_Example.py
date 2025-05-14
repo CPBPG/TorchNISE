@@ -12,15 +12,15 @@ time_unit="fs"
 torchnise.units.set_units(e_unit=energy_unit,t_unit=time_unit)
 dt=1
 total_time=1000
-realizations=100000
-device="cuda" #"cuda" for GPU "cpu" for CPU
+realizations=10000
+device="cpu" #"cuda" for GPU "cpu" for CPU
 if device=="cuda":
     #torch.backends.cuda.preferred_linalg_library(backend="magma")
     torch.backends.cuda.preferred_linalg_library(backend="cusolver")
     #we find for some Hamiltonians that the magma backend is faster than cusolver.
     #while for other Hamiltonians the cusolver backend is faster.
     #we could not find a way to predict which backend is faster for a given Hamiltonian.
-    #sometimes botha re only abput as fast or even slower than cpu
+    #sometimes both are only abput as fast or even slower than cpu
     #other times we get a speedup of rouhgly 20x
 n_sites=2
 H=torch.zeros((n_sites,n_sites),dtype=torch.float32)
@@ -61,7 +61,7 @@ dipole_moments=torch.tensor([[1,0,0]]*n_sites) #dipole moments for each site.
 
 population, xaxis_p = torchnise.nise.run_nise(H,realizations, total_time,dt, initialState,T, spectral_funcs,
                t_correction=T_correction1,mode=Mode1,averaging_method=Averaging1, device=device,max_reps=500000
-               ,save_interval=1)
+               ,save_interval=10)
 
 
 
