@@ -35,7 +35,7 @@ def inverse_sample(dist, shape, x_min=-100, x_max=100, n=1e5, **kwargs):
     f = interp1d(cumulative / cumulative.max(), x)
     return f(np.random.random(shape))
 
-def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32):
+def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32,device="cpu"):
     """
     Generates time-correlated noise following the power spectrums provided in
     spectral_funcs.
@@ -50,6 +50,8 @@ def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32):
             steps, and the remaining dimension is the number of sites.
         use_h5 (bool): If True, uses h5py to save tensor to disk.
         dtype (torch.dtype): Data type of the output noise array.
+        device (str, optional): Device for computation ("cpu" or "cuda").
+            Defaults to "cpu".
     
     Returns:
         torch.Tensor: Time-correlated noise with the specified shape.
@@ -71,12 +73,12 @@ def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32):
         noise2 = H5Tensor(shape=(n_sites,reals,steps),h5_filepath=filepath2,dtype=dtype)
         noise = H5Tensor(shape=shape,h5_filepath=filepath1,dtype=dtype)
     else:
-        noise = torch.zeros(shape, dtype=dtype)
-
+        noise = torch.zeros(shape, dtype=dtype,device="cpu")
     if len(spectral_funcs) == 1:
         for i in range(n_sites):
             noise[:, :, i] = noise_algorithm_torch((steps, reals), dt,
-                                                   spectral_funcs[0], axis=0)
+                                                   spectral_funcs[0], axis=0,
+                                                   dtype=dtype,device=device).cpu()
         return noise
 
     if len(spectral_funcs) == n_sites:
@@ -105,7 +107,8 @@ def gen_noise(spectral_funcs, dt, shape, use_h5,dtype=torch.float32):
         else:
             for i in tqdm.tqdm(range(n_sites),desc="Noise gen site"):
                 noise[:, :, i] = noise_algorithm_torch((steps, reals), dt,
-                                                   spectral_funcs[i], axis=0)
+                                                   spectral_funcs[i], axis=0,
+                                                   dtype=dtype,device=device).cpu()
         return noise
 
 
@@ -184,7 +187,8 @@ def noise_algorithm(shape, dt, spectral_func, axis=-1, sample_dist=None,
     return time_domain_noise
 
 def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
-                    discard_half=True, save=False, save_name=None):
+                    discard_half=True, save=False, save_name=None
+                    ,dtype=torch.float32,device="cpu"):
     """
     Pytorch vesrsion: Generates time-correlated noise following the power
     spectrum provided in spectral_func.
@@ -204,6 +208,11 @@ def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
             file.
         save_name (str, optional): Name of the file to save the noise array.
             Required if save is True.
+         dtype (torch.dtype, optional): Data type of the output noise array.
+            Defaults to torch.float32.
+        device (str, optional): Device for computation ("cpu" or "cuda").
+            Defaults to "cpu".
+       
     
     Returns:
         torch.tensor: Time-correlated noise with the specified shape.
@@ -222,9 +231,9 @@ def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
         noise_samples = sample_dist(shape)
         # Rescale to zero mean and unit variance
         white_noise = ((noise_samples - torch.mean(noise_samples)) /
-                       torch.std(noise_samples))
+                       torch.std(noise_samples)).to(device=device,dtype=dtype)
     else:
-        white_noise = torch.normal(0, 1, size=shape)
+        white_noise = torch.normal(0, 1, size=shape,device=device,dtype=dtype)
 
     # Fourier transform of the white noise along the steps axis
     freq = (torch.fft.fft(white_noise, axis=axis) *
@@ -236,7 +245,8 @@ def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
     # Envelope the frequencies with the spectral function
     with warnings.catch_warnings(action="ignore"):
         spectral_density = torch.sqrt(torch.tensor(spectral_func(freq_bins)))
-    reshaped_spectral_density = spectral_density.reshape(
+    reshaped_spectral_density = spectral_density.to(device=device
+                                                    ,dtype=dtype).reshape(
                                            [1 if dim != axis else
                                             len(spectral_density)
                                             for dim in range(len(shape))])
@@ -254,5 +264,6 @@ def noise_algorithm_torch(shape, dt, spectral_func, axis=-1, sample_dist=None,
     # Save the noise array if required
     if save and save_name:
         torch.save(save_name, time_domain_noise)
-
+    if time_domain_noise.device.type=="cuda":
+        torch.cuda.empty_cache()
     return time_domain_noise

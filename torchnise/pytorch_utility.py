@@ -498,8 +498,13 @@ class H5Tensor:
         return self.shape[0]
 
     def to(self, device):
-        self.device = device
-        return self
+        if not device=="cpu":
+            warnings.warn("H5Tensor can only be on CPU. Using .to_tensor().to{device} " \
+                          "to load data into memory of specified device as a regular"
+                          "torch.tensor.")
+            return self.to_tensor().to(device)
+        else:    
+            return self
 
     def __repr__(self):
         if self.h5_filepath:

@@ -30,6 +30,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                    mlnise_model=None,use_h5=False,constant_v=False,site_noise=None,
                    v_time_dependent=None, v_dt=None):
     """
+
     Propagate the quantum state using the NISE algorithm with optional thermal
         corrections.
 
@@ -90,9 +91,9 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                          h5_filepath="psloc.h5")
     else:
         psloc = torch.zeros((realizations, total_steps_saved, n_sites),
-                        device=device)
+                        device="cpu")
 
-    aranged_realizations=torch.arange(realizations)
+    aranged_realizations=torch.arange(realizations,device=device)
 
     if save_coherence:
         if use_h5:
@@ -100,7 +101,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                                       n_sites, n_sites), h5_filepath="cohloc.h5")
         else:
             coh_loc = torch.zeros((realizations, total_steps_saved, n_sites,
-                               n_sites), device=device, dtype=torch.complex64)
+                               n_sites), device="cpu", dtype=torch.complex64)
     #grab the 0th timestep
     #[all realizations : 0th timestep  : all sites : all sites]
     if v_time_dependent is not None:
@@ -108,11 +109,15 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         v_current = v_time_dependent[0,:,:,:].clone()
         current_v_index=0
         v_next=v_time_dependent[1,:,:,:].clone()
-        h = v_current  + torch.diag_embed(site_noise[0,:,:].clone()+efull)
+        h = (v_current  + torch.diag_embed(site_noise[0,:,:].clone()+efull)).to(device=device)
     elif constant_v:
-        h = hfull + torch.diag_embed(site_noise[0,:,:].clone())
+        h = (hfull + torch.diag_embed(site_noise[0,:,:].clone())).to(device=device)
     else:
         h = hfull[0, :, :, :].clone().to(device=device)
+    using_cuda = False
+    if h.device.type=="cuda":
+        using_cuda = True
+        torch.cuda.empty_cache()
     #get initial eigenenergies and transition matrix from eigen to site basis.
     e, c = torch.linalg.eigh(h)
     # Since the Hamiltonian is hermitian we van use eigh
@@ -140,7 +145,7 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                             ,h5_filepath="uloc.h5",dtype=torch.complex64)
         else:
             uloc = torch.zeros((realizations, total_steps_saved, n_sites, n_sites),
-                           device=device, dtype=torch.complex64)
+                           device="cpu", dtype=torch.complex64)
         identity = torch.eye(n_sites, dtype=torch.complex64)
         identity = identity.reshape(1, n_sites, n_sites)
         uloc[:, 0, :, :] = identity.repeat(realizations, 1, 1)
@@ -160,14 +165,16 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
                 v_next=v_time_dependent[current_v_index+1,:,:,:].clone()
             remainder=((t*dt)%v_dt)/v_dt
             h = (v_current*(1-remainder) +v_next*remainder) + torch.diag_embed(
-                site_noise[t,:,:].clone()+efull)
+                site_noise[t,:,:].clone()+efull).to(device=device)
         elif constant_v:
-            h = hfull + torch.diag_embed(site_noise[t,:,:].clone())
+            h = (hfull + torch.diag_embed(site_noise[t,:,:].clone())).to(device=device)
         else:
             h = hfull[t, :, :, :].clone().to(device=device)
         #[all realizations : t'th timestep  : all sites : all sites]
-        e, v_eps = torch.linalg.eigh(h)
-        c = v_eps
+        if using_cuda:
+            torch.cuda.empty_cache()
+        e, c = torch.linalg.eigh(h)
+        
         #multiply the old with the new transition matrix to get the
         #non-adiabatic coupling
         s = torch.matmul(c.transpose(1, 2), cold)
@@ -192,24 +199,26 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
 
         if t % save_interval == 0:
             psloc[:, t // save_interval, :] = (
-                        (phi_bin_loc_base.abs() ** 2)[:, :, 0] ).real
+                        (phi_bin_loc_base.abs() ** 2)[:, :, 0] ).real.cpu()
             if save_u:
                 if t_correction.lower() in ["mlnise", "tnise"]:
                     for i in range(n_sites):
                         ub_norm_row = renorm(ub[:, :, i], dim=1)
                         ub[:, :, i] = ub_norm_row[:, :]
 
-                uloc[:, t // save_interval, :, :] = c.bmm(ub)
+                uloc[:, t // save_interval, :, :] = c.bmm(ub).cpu()
 
             if save_coherence:
                 coh_loc[:, t // save_interval, :, :] = (
                     phi_bin_loc_base.squeeze(-1)[:, :, None] *
                     phi_bin_loc_base.squeeze(-1)[:, None, :].conj()
-                ).real
+                ).real.cpu()
     coh_loc = coh_loc.cpu() if save_coherence else None
     uloc = uloc.cpu() if save_u else None
-
-    return psloc.cpu(), coh_loc, uloc
+    psloc = psloc.cpu()
+    if using_cuda:
+            torch.cuda.empty_cache()
+    return psloc, coh_loc, uloc
 
 def apply_t_correction(s, n_sites, realizations, device, e, eold,
                        t_correction, kbt, mlnise_model, mlnise_inputs,
@@ -328,7 +337,7 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
     # Run NISE without T correction if necessary
     if averaging_method.lower() in ["boltzmann", "interpolated"]:
         population, coherence, u = nise_propagate(
-            hfull.to(device), realizations, psi0.to(device), total_time,
+            hfull.cpu(), realizations, psi0.to(device), total_time,
             dt, temperature, save_interval=save_interval,
             t_correction="None", device=device, save_u=True,
             save_coherence=True, use_h5=use_h5,
@@ -339,7 +348,7 @@ def nise_averaging(hfull, realizations, psi0, total_time, dt, temperature,
                         lifetime_factor)
 
     population, coherence, u = nise_propagate(
-        hfull.to(device), realizations, psi0.to(device), total_time, dt,
+        hfull.cpu(), realizations, psi0.to(device), total_time, dt,
         temperature, save_interval=save_interval,
         t_correction=t_correction, device=device, save_u=save_u or save_multi_slice,
         save_coherence=True, mlnise_inputs=mlnise_inputs, mlnise_model=mlnise_model,
@@ -371,7 +380,8 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
              t_correction="None", mode="Population", mu=None, absorption_padding=10000,
              averaging_method="standard", lifetime_factor=5, max_reps=100000,
              mlnise_inputs=None, mlnise_model=None,
-             device="cpu", use_h5=False,v_time_dependent=None, v_dt=None):
+             device="cpu", use_h5=False,v_time_dependent=None, v_dt=None,
+             track_grads=False):
     """
     Main function to run NISE simulations for population dynamics or
     absorption spectra.
@@ -424,6 +434,9 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             is larger than dt, otherwise use the Full Hamiltonian in hfull.
             Defaults to None.
         v_dt (float): timestep for the time dependent coupling.
+        track_grads (bool, optional): If True, track gradients for training.
+            Defaults to False.
+
 
     Returns:
         tuple: Depending on mode, returns either (np.ndarray, np.ndarray) for
@@ -431,170 +444,178 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
             (torch.Tensor, torch.Tensor) for averaged populations and time
             axis.
     """
-    total_steps = int((total_time + dt) / dt)
-    save_steps = int((total_time + dt * save_interval) / (dt * save_interval))
-    n_states = h.shape[-1]
-    time_dependent_h = len(h.shape) >= 3
-    window=1
-    if time_dependent_h:
-        constant_v=False
-        trajectory_steps = h.shape[0]
-        if realizations > 1:
-            window = int((trajectory_steps - total_steps) / (realizations - 1))
-            print(f"window is {window * dt} {units.CURRENT_T_UNIT}")
-        total_slices = trajectory_steps - total_steps + 1
-        available_slices = list(range(0, total_slices, window))
-        num_available_slices = len(available_slices)
-        print(f"Number of available slices: {num_available_slices}")
-
-        # Initialize shuffled_indices with shape (realizations, n_states)
-        shuffled_indices = torch.zeros((realizations, n_states), dtype=torch.int)
-
-        # For each site, shuffle the available slices and assign to realizations
-        for i in range(n_states):
-            slices_for_site = available_slices.copy()
-            np.random.shuffle(slices_for_site)
-            repeats = (realizations + num_available_slices - 1) // num_available_slices
-            slices_for_site_extended = (slices_for_site * repeats)[:realizations]
-            shuffled_indices[:, i] = torch.tensor(slices_for_site_extended,dtype=torch.int)
-
-    else:
-        constant_v=True
-        shuffled_indices = None
-
-    def generate_hfull_chunk(chunk_size, start_index=0, window=1, shuffled_indices=None):
-
+    context = torch.enable_grad() if track_grads else torch.no_grad()
+    with context:
+        total_steps = int((total_time + dt) / dt)
+        save_steps = int((total_time + dt * save_interval) / (dt * save_interval))
+        n_states = h.shape[-1]
+        time_dependent_h = len(h.shape) >= 3
+        window=1
         if time_dependent_h:
-            chunk_shape=(total_steps,chunk_size, n_states, n_states)
-            if use_h5:
-                chunk_hfull = H5Tensor(shape=chunk_shape,h5_filepath=f"H_{start_index}.h5")
-            else:
-                chunk_hfull = torch.zeros(chunk_shape)
-            for j in range(chunk_size):
-                h_index = start_index + j
-                chunk_hfull[:, j, :, :] = torch.tensor(
-                    h[window * h_index:window * h_index + total_steps, :, :])
-            if shuffled_indices is not None:
-                for i in range(n_states):
-                    shuffled_start = shuffled_indices[h_index, i]
-                    chunk_hfull[:, j, i, i] = torch.tensor(
-                        h[shuffled_start:shuffled_start + total_steps, i, i]
-                    )
-            return chunk_hfull,None
+            constant_v=False
+            trajectory_steps = h.shape[0]
+            if realizations > 1:
+                window = int((trajectory_steps - total_steps) / (realizations - 1))
+                print(f"window is {window * dt} {units.CURRENT_T_UNIT}")
+            total_slices = trajectory_steps - total_steps + 1
+            available_slices = list(range(0, total_slices, window))
+            num_available_slices = len(available_slices)
+            print(f"Number of available slices: {num_available_slices}")
 
-        print("Generating noise")
-        noise = gen_noise(spectral_funcs, dt, (total_steps,chunk_size,
-                          n_states),dtype=torch.float32,use_h5=use_h5)
-        #if use_h5:
-            #noise=H5Tensor(noise,"noise.h5")
-        return h, noise
-        #print("Building H")
-        #chunk_hfull[:] = h
-        #if use_h5:
-        #    for step in tqdm.tqdm(range(total_steps)
-        #                          ,desc="timesteps of noise added to Hamiltonian"):
-        #        #print(step)
-        #        chunk_hfull_step=chunk_hfull[step, :, :, :]
+            # Initialize shuffled_indices with shape (realizations, n_states)
+            shuffled_indices = torch.zeros((realizations, n_states), dtype=torch.int
+                                        ,device="cpu")
 
-        #        for i in range (n_states):
-        #            chunk_hfull_step[ :, i, i]=chunk_hfull_step[ :, i, i] + noise[step, :, i]
-        #        chunk_hfull[step, :, :, :] = chunk_hfull_step
-        #else:
+            # For each site, shuffle the available slices and assign to realizations
+            for i in range(n_states):
+                slices_for_site = available_slices.copy()
+                np.random.shuffle(slices_for_site)
+                repeats = (realizations + num_available_slices - 1) // num_available_slices
+                slices_for_site_extended = (slices_for_site * repeats)[:realizations]
+                shuffled_indices[:, i] = torch.tensor(slices_for_site_extended,dtype=torch.int,
+                                                    device="cpu")
+
+        else:
+            constant_v=True
+            shuffled_indices = None
+
+        def generate_hfull_chunk(chunk_size, start_index=0, window=1, shuffled_indices=None):
+
+            if time_dependent_h:
+                chunk_shape=(total_steps,chunk_size, n_states, n_states)
+                if use_h5:
+                    chunk_hfull = H5Tensor(shape=chunk_shape,h5_filepath=f"H_{start_index}.h5")
+                else:
+                    chunk_hfull = torch.zeros(chunk_shape,device="cpu")
+                for j in range(chunk_size):
+                    h_index = start_index + j
+                    chunk_hfull[:, j, :, :] = torch.tensor(
+                        h[window * h_index:window * h_index + total_steps, :, :],device="cpu")
+                if shuffled_indices is not None:
+                    for i in range(n_states):
+                        shuffled_start = shuffled_indices[h_index, i]
+                        chunk_hfull[:, j, i, i] = torch.tensor(
+                            h[shuffled_start:shuffled_start + total_steps, i, i],device="cpu"
+                        )
+                return chunk_hfull,None
+
+            print("Generating noise")
+
+            noise = gen_noise(spectral_funcs, dt, (total_steps,chunk_size,
+                            n_states),dtype=torch.float32,device=device,
+                            use_h5=use_h5).cpu()
+            #if use_h5:
+                #noise=H5Tensor(noise,"noise.h5")
+            return h, noise
+            #print("Building H")
             #chunk_hfull[:] = h
-        #    for i in range (n_states):
-        #        chunk_hfull[:, :, i, i] += noise[:, :, i]
-        #return chunk_hfull, None
+            #if use_h5:
+            #    for step in tqdm.tqdm(range(total_steps)
+            #                          ,desc="timesteps of noise added to Hamiltonian"):
+            #        #print(step)
+            #        chunk_hfull_step=chunk_hfull[step, :, :, :]
 
-    num_chunks = ((realizations + max_reps - 1) // max_reps
-                  if realizations > max_reps else 1)
-    print(f"Splitting calculation into {num_chunks} chunks")
-    chunk_size = (realizations + num_chunks - 1) // num_chunks
+            #        for i in range (n_states):
+            #            chunk_hfull_step[ :, i, i]=chunk_hfull_step[ :, i, i] + noise[step, :, i]
+            #        chunk_hfull[step, :, :, :] = chunk_hfull_step
+            #else:
+                #chunk_hfull[:] = h
+            #    for i in range (n_states):
+            #        chunk_hfull[:, :, i, i] += noise[:, :, i]
+            #return chunk_hfull, None
 
-    save_u = mode.lower() == "absorption" or save_u
-    weights = []
-    all_output = torch.zeros(num_chunks, save_steps, n_states)
+        num_chunks = ((realizations + max_reps - 1) // max_reps
+                    if realizations > max_reps else 1)
+        print(f"Splitting calculation into {num_chunks} chunks")
+        chunk_size = (realizations + num_chunks - 1) // num_chunks
 
-    if mode.lower() == (
-            "population" and t_correction.lower() in ["mlnise", "tnise"] and
-            averaging_method in ["interpolated", "boltzmann"]):
-        all_coherence = torch.zeros(num_chunks, save_steps, n_states, n_states)
-        all_lifetimes = torch.zeros(num_chunks, n_states)
-    elif mode.lower() == "absorption":
-        all_absorb_time = []
-
-    for i in range(0, realizations, chunk_size):
-        chunk_reps = min(chunk_size, realizations - i)
-        weights.append(chunk_reps)
-        chunk_hfull, site_noise = generate_hfull_chunk(chunk_reps, start_index=i,
-                                           window=window, shuffled_indices=shuffled_indices)
-        print("Running calculation")
-        pop_avg, coherence_avg, u, lifetimes, multi_pop = nise_averaging(
-            chunk_hfull, chunk_reps, initial_state, total_time, dt,
-            temperature, save_interval=save_interval,
-            t_correction=t_correction, averaging_method=averaging_method,
-            lifetime_factor=lifetime_factor, device=device, save_u=save_u,
-            save_coherence=True, save_multi_pop=save_multi_pop,
-            save_multi_slice=save_multi_slice, mlnise_inputs=mlnise_inputs,
-            mlnise_model = mlnise_model, use_h5=use_h5, constant_v=constant_v,
-            site_noise=site_noise, v_time_dependent=v_time_dependent, v_dt=v_dt
-        )
+        save_u = mode.lower() == "absorption" or save_u
+        weights = []
+        all_output = torch.zeros(num_chunks, save_steps, n_states,device="cpu")
 
         if mode.lower() == (
-                "population" and t_correction.lower() in ["mlnise", "tnise"]
-                and averaging_method in ["interpolated", "boltzmann"]):
-            all_coherence[i // chunk_size, :, :, :] = coherence_avg
-            all_lifetimes[i // chunk_size, :] = lifetimes
+                "population" and t_correction.lower() in ["mlnise", "tnise"] and
+                averaging_method in ["interpolated", "boltzmann"]):
+            all_coherence = torch.zeros(num_chunks, save_steps, n_states, n_states,
+                                        device="cpu")
+            all_lifetimes = torch.zeros(num_chunks, n_states,device="cpu")
         elif mode.lower() == "absorption":
-            absorb_time = absorption_time_domain(u, mu)
-            all_absorb_time.append(absorb_time)
-        if save_u:
-            if save_u and save_u_file is not None:
-                if "." in save_u_file:
-                    name,ending=save_u_file.split(".")
-                else:
-                    name=save_u_file
-                    ending="pt"
-                torch.save(u,f"{name}_{i}.{ending}")
-        if save_multi_pop:
-            if save_multi_pop and save_pop_file is not None:
-                if "." in save_pop_file:
-                    name,ending=save_pop_file.split(".")
-                else:
-                    name=save_pop_file
-                    ending="pt"
-                torch.save(multi_pop,f"{name}_{i}.{ending}")
-        all_output[i // chunk_size, :, :] = pop_avg
+            all_absorb_time = []
+
+        for i in range(0, realizations, chunk_size):
+            chunk_reps = min(chunk_size, realizations - i)
+            weights.append(chunk_reps)
+            chunk_hfull, site_noise = generate_hfull_chunk(chunk_reps, start_index=i,
+                                            window=window, shuffled_indices=shuffled_indices)
+            print("Running calculation")
+            pop_avg, coherence_avg, u, lifetimes, multi_pop = nise_averaging(
+                chunk_hfull, chunk_reps, initial_state, total_time, dt,
+                temperature, save_interval=save_interval,
+                t_correction=t_correction, averaging_method=averaging_method,
+                lifetime_factor=lifetime_factor, device=device, save_u=save_u,
+                save_coherence=True, save_multi_pop=save_multi_pop,
+                save_multi_slice=save_multi_slice, mlnise_inputs=mlnise_inputs,
+                mlnise_model = mlnise_model, use_h5=use_h5, constant_v=constant_v,
+                site_noise=site_noise, v_time_dependent=v_time_dependent, v_dt=v_dt
+            )
+
+            if mode.lower() == (
+                    "population" and t_correction.lower() in ["mlnise", "tnise"]
+                    and averaging_method in ["interpolated", "boltzmann"]):
+                all_coherence[i // chunk_size, :, :, :] = coherence_avg.cpu()
+                all_lifetimes[i // chunk_size, :] = lifetimes.cpu()
+            elif mode.lower() == "absorption":
+                absorb_time = absorption_time_domain(u, mu)
+                all_absorb_time.append(absorb_time)
+            if save_u:
+                if save_u and save_u_file is not None:
+                    if "." in save_u_file:
+                        name,ending=save_u_file.split(".")
+                    else:
+                        name=save_u_file
+                        ending="pt"
+                    torch.save(u,f"{name}_{i}.{ending}")
+            if save_multi_pop:
+                if save_multi_pop and save_pop_file is not None:
+                    if "." in save_pop_file:
+                        name,ending=save_pop_file.split(".")
+                    else:
+                        name=save_pop_file
+                        ending="pt"
+                    torch.save(multi_pop,f"{name}_{i}.{ending}")
+            all_output[i // chunk_size, :, :] = pop_avg.cpu()
 
 
-    if mode.lower() == (
-            "population" and t_correction.lower() in ["mlnise", "tnise"] and
-            averaging_method in ["interpolated", "boltzmann"]):
-        lifetimes = torch.mean(all_lifetimes, dim=0)
-        print(f"lifetimes multiplied by lifetime factor are {lifetimes}")
-        avg_output, _ = averaging(all_output, averaging_method,
-                                  lifetimes=lifetimes, step=dt*save_interval,
-                                  coherence=all_coherence,
-                                  weight=torch.tensor(weights,
-                                                      dtype=torch.float))
-    else:
-        lifetimes = None
-        avg_output = weighted_mean(all_output, weights=weights)
+        if mode.lower() == (
+                "population" and t_correction.lower() in ["mlnise", "tnise"] and
+                averaging_method in ["interpolated", "boltzmann"]):
+            lifetimes = torch.mean(all_lifetimes, dim=0)
+            print(f"lifetimes multiplied by lifetime factor are {lifetimes}")
+            avg_output, _ = averaging(all_output, averaging_method,
+                                    lifetimes=lifetimes, step=dt*save_interval,
+                                    coherence=all_coherence,
+                                    weight=torch.tensor(weights,
+                                                        dtype=torch.float),
+                                                        device=device)
+        else:
+            lifetimes = None
+            avg_output = weighted_mean(all_output, weights=weights)
 
 
-    if mode.lower() == "absorption":
-        avg_absorb_time = weighted_mean(all_absorb_time, weights=weights , dim=0)
-        pad = int(absorption_padding / (dt * units.T_UNIT))
-        absorb_config = {
-            "total_time": total_time,
-            "dt": dt,
-            "pad": pad,
-            "smoothdamp": True,
-            "smoothdamp_start_percent": 10
-        }
-        absorb_f, x_axis = absorb_time_to_freq(avg_absorb_time, absorb_config)
-        return absorb_f, x_axis
+        if mode.lower() == "absorption":
+            avg_absorb_time = weighted_mean(all_absorb_time, weights=weights , dim=0)
+            pad = int(absorption_padding / (dt * units.T_UNIT))
+            absorb_config = {
+                "total_time": total_time,
+                "dt": dt,
+                "pad": pad,
+                "smoothdamp": True,
+                "smoothdamp_start_percent": 10
+            }
+            absorb_f, x_axis = absorb_time_to_freq(avg_absorb_time, absorb_config)
+            return absorb_f, x_axis
 
-    return avg_output, torch.linspace(0, total_time, avg_output.shape[0])
+    return avg_output.cpu(), torch.linspace(0, total_time, avg_output.shape[0])
 
 
 class MLNISEModel(nn.Module):

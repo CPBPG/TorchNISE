@@ -142,7 +142,8 @@ def _train_one_epoch(
                 mode="Population",
                 device=device,
                 mlnise_model=model,       # important for the correction
-                mlnise_inputs=mlnise_inputs
+                mlnise_inputs=mlnise_inputs,
+                track_grads=True,
             )
         # pop_pred has shape (time_steps, n_sites).
 
