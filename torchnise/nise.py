@@ -1,6 +1,7 @@
 """
 This file contains the main module Implementing the NISE calculations
 """
+import os
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -591,6 +592,10 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
                     else:
                         name=save_u_file
                         ending="pt"
+                    # Ensure the directory exists
+                    dir_path = os.path.dirname(name)
+                    if dir_path:  # Only try to create it if it's not an empty string
+                        os.makedirs(dir_path, exist_ok=True)
                     torch.save(u,f"{name}_{i}.{ending}")
             if save_multi_pop:
                 if save_multi_pop and save_pop_file is not None:
@@ -599,6 +604,10 @@ def run_nise(h, realizations, total_time, dt, initial_state, temperature,
                     else:
                         name=save_pop_file
                         ending="pt"
+                    # Ensure the directory exists
+                    dir_path = os.path.dirname(name)
+                    if dir_path:  # Only try to create it if it's not an empty string
+                        os.makedirs(dir_path, exist_ok=True)
                     torch.save(multi_pop,f"{name}_{i}.{ending}")
             all_output[i // chunk_size, :, :] = pop_avg.cpu()
 
