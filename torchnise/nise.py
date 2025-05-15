@@ -146,12 +146,12 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         else:
             uloc = torch.zeros((realizations, total_steps_saved, n_sites, n_sites),
                            device="cpu", dtype=torch.complex64)
-        identity = torch.eye(n_sites, dtype=torch.complex64)
+        identity = torch.eye(n_sites, dtype=torch.complex64,device="cpu")
         identity = identity.reshape(1, n_sites, n_sites)
         uloc[:, 0, :, :] = identity.repeat(realizations, 1, 1)
         ub = cold.transpose(1, 2).to(dtype=torch.complex64).bmm(
-                                                            uloc[:, 0, :, :])
-        ub = ub.to(dtype=torch.complex64).to(device=device)
+                                                            uloc[:, 0, :, :].to(device=device))
+        #ub = ub.to(dtype=torch.complex64).to(device=device)
 
     #Now we get to the step by step timepropagation.
     #We start at 1 and not 0 since we have already filled the first slot of
