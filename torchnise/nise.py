@@ -10,7 +10,8 @@ import tqdm
 from torchnise.pytorch_utility import (
     renorm,
     H5Tensor,
-    weighted_mean
+    weighted_mean,
+    CupyEigh
     )
 from torchnise import units
 from torchnise.averaging_and_lifetimes import (
@@ -119,7 +120,13 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         using_cuda = True
         torch.cuda.empty_cache()
     #get initial eigenenergies and transition matrix from eigen to site basis.
-    e, c = torch.linalg.eigh(h)
+    h = h.to(dtype=torch.float32)
+    if using_cuda and n_sites >32 and n_sites < 512:
+        e, c = CupyEigh.apply(h)
+    else:
+        e, c = torch.linalg.eigh(h)
+    e = e.to(dtype=torch.float32)
+    c = c.to(dtype=torch.float32)
     # Since the Hamiltonian is hermitian we van use eigh
     # H contains the hamiltonians of all realizations.
     # To our advantage The eigh torch function (like almost all torch
@@ -173,8 +180,13 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         #[all realizations : t'th timestep  : all sites : all sites]
         #if using_cuda:
         #    torch.cuda.empty_cache()
-        e, c = torch.linalg.eigh(h)
-        
+        h= h.to(dtype=torch.float32)
+        if using_cuda and n_sites >32 and n_sites < 512:
+            e, c = CupyEigh.apply(h)
+        else:
+            e, c = torch.linalg.eigh(h)
+        e = e.to(dtype=torch.float32) 
+        c = c.to(dtype=torch.float32)
         #multiply the old with the new transition matrix to get the
         #non-adiabatic coupling
         s = torch.matmul(c.transpose(1, 2), cold)

@@ -10,6 +10,8 @@ import glob
 import numpy as np
 import torch
 import h5py
+from torch.utils import dlpack
+import cupy as cp
 
 numpy_to_torch_dtype_dict = {
         np.bool_       : torch.bool,
@@ -358,6 +360,62 @@ def smooth_damp_to_zero(f_init, start, end):
     return f
 
 
+class CupyEigh(torch.autograd.Function):
+    eps = 1.0e-12              # safety for repeated eigenvalues
+
+    # -------- forward --------
+    @staticmethod
+    def forward(ctx, A_torch):
+        """
+        A_torch  (B,N,N, float32|float64, CUDA or CPU)
+                 *need not* be exactly symmetric – we enforce it here
+        returns   eigenvalues (B,N)   and eigenvectors (B,N,N)
+        """
+        # 1. force symmetry once – this keeps gradcheck happy
+        A_sym = 0.5 * (A_torch + A_torch.transpose(-2, -1))
+
+        # 2. CuPy view and eigh
+        vals_cp, vecs_cp = cp.linalg.eigh(cp.asarray(A_sym))
+
+        # 3. zero-copy back to Torch
+        vals_t = dlpack.from_dlpack(vals_cp.toDlpack())
+        vecs_t = dlpack.from_dlpack(vecs_cp.toDlpack())
+
+        ctx.save_for_backward(vals_t, vecs_t)
+        return vals_t, vecs_t
+
+    # -------- backward --------
+    @staticmethod
+    def backward(ctx, g_vals, g_vecs):
+        vals, vecs = ctx.saved_tensors          # (B,N) , (B,N,N)
+        B, N       = vals.shape
+        eye        = torch.eye(N, dtype=vals.dtype, device=vals.device)
+
+        # build F_ij = 1/(λ_i-λ_j) with safe diagonal
+        lam_i  = vals.unsqueeze(-1)             # (B,N,1)
+        lam_j  = vals.unsqueeze(-2)             # (B,1,N)
+        diff   = lam_i - lam_j
+        inv    = (diff + CupyEigh.eps * eye).reciprocal()
+        inv.diagonal(dim1=-2, dim2=-1).zero_()  # force F_ii = 0
+
+        # M = Qᵀ (∂L/∂Q)
+        if g_vecs is None:
+            # happens when the loss depends only on the eigenvalues
+            M = torch.zeros_like(inv)
+        else:
+            M = vecs.transpose(-2, -1).conj() @ g_vecs  # (B,N,N)
+
+        # inner bracket  S = diag(g_vals) + sym( F ⊙ (M − Mᵀ) )
+        diag_term = g_vals.unsqueeze(-1) * eye
+        skew_M    = M - M.transpose(-2, -1)
+        S         = diag_term + 0.5 * (inv * skew_M)
+
+        grad_A = vecs @ S @ vecs.transpose(-2, -1)      # (B,N,N)
+
+        # input tensor count == 1  →  return a 1-tuple
+        return (grad_A,)
+    
+    
 class H5Tensor:
     """
     A class for handling PyTorch tensors stored in HDF5 files.
