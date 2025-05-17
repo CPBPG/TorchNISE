@@ -21,7 +21,7 @@
 -  **Fully Differentiable**: Backpropagation-compatible with PyTorch autograd.
 
 Gradients can be automatically calculated throughout all calculations. This can be used to train MLNISE models, but many other applications are thinkable. One could use this e.g. to get the gradient of the error between the calculated and an experimental spectral density with respect to the average Hamiltonian. One could then optimize the Hamiltonian so that it matches an experimental absorption spectrum.
--  **GPU Acceleration**: Especially effective for large systems
+-  **GPU Acceleration**: Especially effective for large systems or small systems with many realizations
 
 As most of the code is build on top of the pytorch package, which can delegate calculations to the GPU, TorchNISE can also be run on the GPU. This gives a considerable speedup for many realizations or large Hamiltonians.
 . 
@@ -101,6 +101,8 @@ Feel free to use and adapt, but please cite the original papers:
 ---
 
 ## 🛠️ Changelog
+### v0.3.3
+- GPU optimizations for intermediate size (32-512) Hamiltonains and bug fixes
 ### v0.3.2
 - Avoid GPU memory overflow during noise gen, further gpu otimizations
 ### v0.3.1
