@@ -201,8 +201,10 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
         if save_u:
             ub = u.bmm(ub)
 
-        if t_correction.lower() in ["mlnise", "tnise"]:
-            phi_b = renorm(phi_b, dim=1)
+        #if t_correction.lower() in ["mlnise", "tnise"]:
+        # with fp32 it is best to renormalize 
+        # the wave function regardless if we use t_correction or not
+        phi_b = renorm(phi_b, dim=1)
         cold = c
         eold = e
         c = c.to(dtype=torch.complex64)
@@ -213,10 +215,12 @@ def nise_propagate(hfull, realizations, psi0, total_time, dt, temperature,
             psloc[:, t // save_interval, :] = (
                         (phi_bin_loc_base.abs() ** 2)[:, :, 0] ).real.cpu()
             if save_u:
-                if t_correction.lower() in ["mlnise", "tnise"]:
-                    for i in range(n_sites):
-                        ub_norm_row = renorm(ub[:, :, i], dim=1)
-                        ub[:, :, i] = ub_norm_row[:, :]
+                #if t_correction.lower() in ["mlnise", "tnise"]: # 
+                #with fp32 it is best to renormalize the ub matrix
+                #regardless if we use t_correction or not
+                for i in range(n_sites):
+                    ub_norm_row = renorm(ub[:, :, i], dim=1)
+                    ub[:, :, i] = ub_norm_row[:, :]
 
                 uloc[:, t // save_interval, :, :] = c.bmm(ub).cpu()
 
