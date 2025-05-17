@@ -102,7 +102,7 @@ Feel free to use and adapt, but please cite the original papers:
 
 ## 🛠️ Changelog
 ### v0.3.3
-- GPU optimizations for intermediate size (32-512) Hamiltonains and bug fixes
+- GPU optimizations for intermediate size (32-512 site) Hamiltonains and bug fixes
 ### v0.3.2
 - Avoid GPU memory overflow during noise gen, further gpu otimizations
 ### v0.3.1
