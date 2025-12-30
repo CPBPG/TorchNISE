@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import warnings
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Type
 from torchnise.nise import NISEParameters, run_nise
 from torchnise import units
 
@@ -44,26 +44,41 @@ class NISE2017Config:
     initial_state_site: int = 0 # 0-indexed internally, 1-indexed in NISE
     projection_sites: List[int] = field(default_factory=list)
 
-def parse_nise2017_input(file_path: str) -> NISE2017Config:
-    config = NISE2017Config()
-    base_dir = os.path.dirname(file_path)
-    with open(file_path, 'r') as f:
-        lines = f.readlines()
+class NISEInputParser:
+    """Parses NISE 2017 input files."""
     
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        if not line or line.startswith('#'):
-            i += 1
-            continue
+    def __init__(self, file_path: str):
+        self.file_path = file_path
+        self.config = NISE2017Config()
+        self.base_dir = os.path.dirname(file_path)
+
+    def parse(self) -> NISE2017Config:
+        with open(self.file_path, 'r') as f:
+            lines = f.readlines()
         
-        parts = line.split()
-        if not parts:
-            i += 1
-            continue
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            if not line or line.startswith('#'):
+                i += 1
+                continue
             
-        keyword = parts[0]
-        
+            parts = line.split()
+            if not parts:
+                i += 1
+                continue
+                
+            keyword = parts[0]
+            
+            if keyword == "Projection":
+                 i = self._handle_projection(lines, i, self.config)
+            else:
+                 self._handle_simple_keyword(keyword, parts, self.config)
+                 i += 1
+                 
+        return self.config
+
+    def _handle_simple_keyword(self, keyword, parts, config):
         if keyword == "Technique":
             config.technique = parts[1]
         elif keyword == "Propagation":
@@ -73,17 +88,17 @@ def parse_nise2017_input(file_path: str) -> NISE2017Config:
         elif keyword == "Threshold":
             config.threshold = float(parts[1])
         elif keyword == "Hamiltonianfile":
-            config.hamiltonian_file = os.path.join(base_dir, parts[1])
+            config.hamiltonian_file = os.path.join(self.base_dir, parts[1])
         elif keyword == "Dipolefile":
-            config.dipole_file = os.path.join(base_dir, parts[1])
+            config.dipole_file = os.path.join(self.base_dir, parts[1])
         elif keyword == "Anharmonicfile":
-            config.anharmonic_file = os.path.join(base_dir, parts[1])
+            config.anharmonic_file = os.path.join(self.base_dir, parts[1])
         elif keyword == "Overtonedipolefile":
-            config.overtone_dipole_file = os.path.join(base_dir, parts[1])
+            config.overtone_dipole_file = os.path.join(self.base_dir, parts[1])
         elif keyword == "Positionfile":
-            config.position_file = os.path.join(base_dir, parts[1])
+            config.position_file = os.path.join(self.base_dir, parts[1])
         elif keyword == "Couplingfile":
-            config.coupling_file = os.path.join(base_dir, parts[1])
+            config.coupling_file = os.path.join(self.base_dir, parts[1])
         elif keyword == "Length":
             config.length = int(parts[1])
         elif keyword == "Samplerate":
@@ -125,112 +140,160 @@ def parse_nise2017_input(file_path: str) -> NISE2017Config:
         elif keyword == "Temperature":
             config.temperature = float(parts[1])
         elif keyword == "InitialState":
-            # NISE uses 1-based indexing for sites? 
-            # Let's check NISE source for InitialState parsing.
-            # Actually NISE doesn't seem to have InitialState keyword in readinput.c
-            # but it was in the benchmark script.
             config.initial_state_site = int(parts[1]) - 1
-        elif keyword == "Sites":
-            # This is often used inside Projection, but some inputs might have it.
-            pass
-        elif keyword == "Projection":
-            # Complex keyword that might span multiple lines
-            i += 1
-            if i < len(lines):
-                proj_line = lines[i].strip()
-                if proj_line.startswith("Sites"):
-                    num_proj = int(proj_line.split()[1])
-                    # Read the next num_proj numbers
-                    proj_sites = []
-                    while len(proj_sites) < num_proj and i + 1 < len(lines):
-                        i += 1
-                        proj_sites.extend([int(x) for x in lines[i].split()])
-                    config.projection_sites = proj_sites
-        # Ignore unknown keywords for now
-        i += 1
-    
-    return config
 
-def load_nise2017_hamiltonian(file_path: str, n_sites: int, n_doubles: int, begin: int, end_point: int, sample_rate: int, tmax: int) -> torch.Tensor:
-    """
-    Loads Hamiltonian from NISE 2017 binary format.
-    Returns a tensor of shape (tmax, realizations, n_sites, n_sites).
-    """
-    num_realizations = end_point - begin
-    h_full = torch.zeros((tmax, num_realizations, n_sites, n_sites), dtype=torch.float32)
-    
-    n_tri_singles = n_sites * (n_sites + 1) // 2
-    n_tri_doubles = n_doubles * (n_doubles + 1) // 2
-    
-    stride = 4 + 4 * (n_tri_singles + n_tri_doubles) # int + floats
-    
-    with open(file_path, 'rb') as f:
-        for r in range(num_realizations):
-            base_pos = (begin + r) * sample_rate
-            for t in range(tmax):
-                pos = (base_pos + t) * stride
-                f.seek(pos)
-                
-                # Read time index
-                f.read(4)
-                
-                # Read singles Hamiltonian (upper triangular)
-                data = f.read(4 * n_tri_singles)
-                if not data:
-                    raise EOFError(f"Unexpected EOF in {file_path}")
-                h_tri = struct.unpack(f"{n_tri_singles}f", data)
-                
-                # Map upper triangular to full matrix
-                for i in range(n_sites):
-                    for j in range(i, n_sites):
-                        idx = j + n_sites * i - (i * (i + 1) // 2)
-                        val = h_tri[idx]
-                        h_full[t, r, i, j] = val
-                        h_full[t, r, j, i] = val
-    
-    return h_full
+    def _handle_projection(self, lines, i, config):
+        # Current logic from procedural function:
+        # i is at "Projection" line
+        # Check next line
+        i += 1 
+        if i < len(lines):
+            proj_line = lines[i].strip()
+            if proj_line.startswith("Sites"):
+                num_proj = int(proj_line.split()[1])
+                proj_sites = []
+                while len(proj_sites) < num_proj and i + 1 < len(lines):
+                    i += 1
+                    proj_sites.extend([int(x) for x in lines[i].split()])
+                config.projection_sites = proj_sites
+        # i is now at the last line consumed.
+        # Outer loop does NOT increment i if we return it? 
+        # Actually outer loop continues. so we should return new i + 1 usually.
+        # Let's say we return the index of the last line processed.
+        # So next iteration starts at i+1?
+        # My outer loop logic was: i += 1 at end if not special.
+        # If special, we return the NEW i.
+        return i + 1
 
-def load_nise2017_dipole(file_path: str, n_sites: int, begin: int, end_point: int, sample_rate: int, tmax: int) -> torch.Tensor:
-    """Reads dipole moments from NISE 2017 binary Dipole.bin format."""
-    num_realizations = end_point - begin
-    mu = torch.zeros((tmax, num_realizations, n_sites, 3), dtype=torch.float32)
+class NISEBinaryLoader:
+    """Handles reading of NISE 2017 binary files."""
     
-    # Format: time_index (int) + 3 * n_sites (floats, mux, muy, muz)
-    stride = 4 + 4 * (3 * n_sites)
-    
-    with open(file_path, 'rb') as f:
-        for r in range(num_realizations):
-            base_pos = (begin + r) * sample_rate
-            for t in range(tmax):
-                pos = (base_pos + t) * stride
-                f.seek(pos)
-                f.read(4) # skip time index
-                data = f.read(4 * 3 * n_sites)
+    def __init__(self, config: NISE2017Config):
+        self.config = config
+        
+    def load_hamiltonian(self) -> torch.Tensor:
+        """
+        Loads Hamiltonian. 
+        TODO: Future extension to return (singles, doubles) tuple if needed.
+        Currently returns Singles block reshaped to full matrix.
+        """
+        file_path = self.config.hamiltonian_file
+        n_sites = self.config.singles
+        n_doubles = self.config.doubles
+        begin = self.config.begin_point
+        end_point = self.config.end_point
+        sample_rate = self.config.sample_rate
+        tmax = self.config.tmax1
+        
+        num_realizations = end_point - begin
+        h_full = torch.zeros((tmax, num_realizations, n_sites, n_sites), dtype=torch.float32)
+        
+        n_tri_singles = n_sites * (n_sites + 1) // 2
+        n_tri_doubles = n_doubles * (n_doubles + 1) // 2
+        
+        # Stride includes both single and double blocks
+        stride = 4 + 4 * (n_tri_singles + n_tri_doubles) 
+        
+        with open(file_path, 'rb') as f:
+            for r in range(num_realizations):
+                base_pos = (begin + r) * sample_rate
+                for t in range(tmax):
+                    pos = (base_pos + t) * stride
+                    f.seek(pos)
+                    
+                    f.read(4) # Time index
+                    
+                    # Read singles
+                    data = f.read(4 * n_tri_singles)
+                    if not data:
+                        raise EOFError(f"Unexpected EOF in {file_path}")
+                    h_tri = struct.unpack(f"{n_tri_singles}f", data)
+                    
+                    # Map to full matrix
+                    for i in range(n_sites):
+                        for j in range(i, n_sites):
+                            idx = j + n_sites * i - (i * (i + 1) // 2)
+                            val = h_tri[idx]
+                            h_full[t, r, i, j] = val
+                            h_full[t, r, j, i] = val
+                            
+                    # Note: We skip Doubles data here, but it's physically present in the file
+                    # if n_doubles > 0. The stride accounts for it.
+                    # If we wanted to read it, we would read 4 * n_tri_doubles next.
+        
+        return h_full
+
+    def load_dipole(self) -> torch.Tensor:
+        file_path = self.config.dipole_file
+        n_sites = self.config.singles
+        begin = self.config.begin_point
+        end_point = self.config.end_point
+        sample_rate = self.config.sample_rate
+        tmax = self.config.tmax1
+
+        num_realizations = end_point - begin
+        mu = torch.zeros((tmax, num_realizations, n_sites, 3), dtype=torch.float32)
+        
+        stride = 4 + 4 * (3 * n_sites)
+        
+        with open(file_path, 'rb') as f:
+            for r in range(num_realizations):
+                base_pos = (begin + r) * sample_rate
+                for t in range(tmax):
+                    pos = (base_pos + t) * stride
+                    f.seek(pos)
+                    f.read(4) 
+                    data = f.read(4 * 3 * n_sites)
+                    if not data:
+                        break
+                    vals = struct.unpack(f"{3*n_sites}f", data)
+                    mu[t, r, :, 0] = torch.tensor(vals[0:n_sites])
+                    mu[t, r, :, 1] = torch.tensor(vals[n_sites:2*n_sites])
+                    mu[t, r, :, 2] = torch.tensor(vals[2*n_sites:3*n_sites])
+        return mu
+
+    def load_positions(self) -> torch.Tensor:
+        file_path = self.config.position_file
+        n_sites = self.config.singles
+        length = self.config.length
+        
+        pos = torch.zeros((length, n_sites, 3), dtype=torch.float32)
+        with open(file_path, 'rb') as f:
+            box_size_data = f.read(4)
+            if not box_size_data:
+                 return pos, 0.0
+            box_size = struct.unpack('f', box_size_data)[0]
+            data = f.read(4 * length * n_sites * 3)
+            if data:
+                vals = struct.unpack(f"{length * n_sites * 3}f", data)
+                for t in range(length):
+                    base = t * n_sites * 3
+                    pos[t, :, 0] = torch.tensor(vals[base : base + n_sites])
+                    pos[t, :, 1] = torch.tensor(vals[base + n_sites : base + 2 * n_sites])
+                    pos[t, :, 2] = torch.tensor(vals[base + 2 * n_sites : base + 3 * n_sites])
+        return pos, box_size
+
+    def load_hamiltonian_diagonal(self) -> np.ndarray:
+        """Loads only the diagonal of the Hamiltonian for the full trajectory."""
+        file_path = self.config.hamiltonian_file
+        n_sites = self.config.singles
+        n_doubles = self.config.doubles
+        length = self.config.length
+        
+        n_tri_singles = n_sites * (n_sites + 1) // 2
+        n_tri_doubles = n_doubles * (n_doubles + 1) // 2
+        stride = 4 + 4 * (n_tri_singles + n_tri_doubles)
+        
+        freq_traj = np.zeros((length, n_sites))
+        with open(file_path, 'rb') as f:
+            for t in range(length):
+                f.seek(t * stride + 4) # Skip time
+                data = f.read(4 * n_sites) # Read first N floats (diagonal)
                 if not data:
                     break
-                vals = struct.unpack(f"{3*n_sites}f", data)
-                # vals is mux1..muxN, muy1..muyN, muz1..muzN
-                mu[t, r, :, 0] = torch.tensor(vals[0:n_sites])
-                mu[t, r, :, 1] = torch.tensor(vals[n_sites:2*n_sites])
-                mu[t, r, :, 2] = torch.tensor(vals[2*n_sites:3*n_sites])
-    return mu
+                freq_traj[t] = struct.unpack(f"{n_sites}f", data)
+        return freq_traj
 
-def load_nise2017_positions(file_path: str, n_sites: int, length: int) -> torch.Tensor:
-    """Reads positions from NISE 2017 binary Position.bin format."""
-    # Format: box_size (float) then length * n_sites * 3 (floats)
-    pos = torch.zeros((length, n_sites, 3), dtype=torch.float32)
-    with open(file_path, 'rb') as f:
-        box_size = struct.unpack('f', f.read(4))[0]
-        data = f.read(4 * length * n_sites * 3)
-        if data:
-            vals = struct.unpack(f"{length * n_sites * 3}f", data)
-            # vals is x1..xN, y1..yN, z1..zN for t0, then t1...
-            for t in range(length):
-                base = t * n_sites * 3
-                pos[t, :, 0] = torch.tensor(vals[base : base + n_sites])
-                pos[t, :, 1] = torch.tensor(vals[base + n_sites : base + 2 * n_sites])
-                pos[t, :, 2] = torch.tensor(vals[base + 2 * n_sites : base + 3 * n_sites])
-    return pos, box_size
 
 def save_nise2017_output(u, total_time, dt):
     """
@@ -282,87 +345,6 @@ def save_nise2017_output(u, total_time, dt):
                     f.write(f"{probs_avg[t, a, b]:.6e} ")
             f.write("\n")
 
-def run_nise2017(input_file_path: str):
-    print(f"Loading NISE 2017 input: {input_file_path}")
-    config = parse_nise2017_input(input_file_path)
-    
-    implemented_techniques = ["Pop", "Population"]
-    all_nise_techniques = [
-        "Pop", "Population", "Analyse", "Analyze", "AnalyseFull", "AnalyzeFull",
-        "Correlation", "Autocorrelation", "Dif", "Diffusion", "Ani", "Anisotropy",
-        "Absorption", "DOS", "MCFRET", "Redfield", "Luminescence", "PL", "Fluorescence",
-        "LD", "CD", "Raman", "SFG"
-    ]
-    
-    if config.technique not in implemented_techniques:
-        if config.technique in all_nise_techniques:
-            raise NotImplementedError(f"Technique '{config.technique}' is a valid NISE 2017 technique but is not yet implemented in the TorchNISE adapter.")
-        else:
-            raise ValueError(f"Unknown NISE 2017 technique: '{config.technique}'")
-        
-    if config.propagation not in ["Sparse", "RK4"]:
-        # TorchNISE handles propagation differently, but "Sparse" and "RK4" in NISE 
-        # are closest to what TorchNISE does (integrating the Schrödinger equation).
-        warnings.warn(f"NISE 2017 Propagation method '{config.propagation}' is not directly supported. Falling back to default TorchNISE propagation.")
-
-    # NISE 2017 tmax1 corresponds to the number of snapshots/steps.
-    # The output has tmax1 lines (0 to tmax1-1).
-    # Total time for the last recorded step is (tmax1 - 1) * dt.
-    total_time = (config.tmax1 - 1) * config.timestep
-    
-    params = NISEParameters(
-        dt=config.timestep,
-        total_time=total_time,
-        temperature=config.temperature,
-        mode="Population",
-        save_interval=1,
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        save_u=True 
-    )
-    
-    # Load Hamiltonian
-    print(f"Loading Hamiltonian from {config.hamiltonian_file}")
-    if not os.path.exists(config.hamiltonian_file):
-        raise FileNotFoundError(f"Hamiltonian file not found: {config.hamiltonian_file}")
-        
-    # We need tmax1 snapshots from NISE.
-    h_nise = load_nise2017_hamiltonian(
-        config.hamiltonian_file,
-        config.singles,
-        config.doubles,
-        config.begin_point,
-        config.end_point,
-        config.sample_rate,
-        config.tmax1
-    )
-    
-    # SHIFT: NISE 2017 uses H(t) to propagate from t to t+1.
-    # TorchNISE uses hfull[t] to propagate from t-1 to t.
-    # To match, we need h_torch[t] = h_nise[t-1] for t >= 1.
-    num_realizations = config.end_point - config.begin_point
-    h_torch = torch.zeros_like(h_nise)
-    if config.tmax1 > 1:
-        h_torch[1:] = h_nise[:-1]
-    h_torch[0] = h_nise[0] # Used for initial state if needed
-    
-    # Initial state
-    initial_state = torch.zeros(config.singles)
-    initial_state[0] = 1.0 
-    
-    from torchnise.nise import nise_propagate
-    
-    print(f"Running NISE calculation on {params.device}...")
-    
-    population, coherence, u = nise_propagate(
-        h_torch,
-        num_realizations,
-        initial_state,
-        params
-    )
-    
-    print("Saving output to Pop.dat and PopF.dat")
-    save_nise2017_output(u, total_time, config.timestep)
-    print("Done.")
 
 def save_nise2017_absorption(avg_s1, config: NISE2017Config):
     """Saves Absorption.dat and TD_Absorption.dat in NISE 2017 format."""
@@ -444,296 +426,273 @@ def save_nise2017_absorption(avg_s1, config: NISE2017Config):
         for i in idx:
             f.write(f"{freqs[i]:.6f} {vals_re[i]:.6e} {vals_im[i]:.6e}\n")
 
-def run_nise2017(input_file_path: str):
-    print(f"Loading NISE 2017 input: {input_file_path}")
-    config = parse_nise2017_input(input_file_path)
-    
-    implemented_techniques = ["Pop", "Population", "Absorption"]
-    all_nise_techniques = [
-        "Pop", "Population", "Analyse", "Analyze", "AnalyseFull", "AnalyzeFull",
-        "Correlation", "Autocorrelation", "Dif", "Diffusion", "Ani", "Anisotropy",
-        "Absorption", "DOS", "MCFRET", "Redfield", "Luminescence", "PL", "Fluorescence",
-        "LD", "CD", "Raman", "SFG"
-    ]
-    
-    if config.technique not in implemented_techniques:
-        if config.technique in all_nise_techniques:
-            raise NotImplementedError(f"Technique '{config.technique}' is a valid NISE 2017 technique but is not yet implemented in the TorchNISE adapter.")
-        else:
-            raise ValueError(f"Unknown NISE 2017 technique: '{config.technique}'")
+class NISECalculation:
+    """Base class for all NISE 2017 calculation modes."""
+    def __init__(self, config: NISE2017Config):
+        self.config = config
+        self.loader = NISEBinaryLoader(config)
         
-    if config.propagation not in ["Sparse", "RK4"]:
-        warnings.warn(f"NISE 2017 Propagation method '{config.propagation}' is not directly supported. Falling back to default TorchNISE propagation.")
+    def run(self):
+        raise NotImplementedError("run() method must be implemented by subclasses")
 
-    # NISE 2017 tmax1 corresponds to the number of snapshots/steps.
-    # The output has tmax1 lines (0 to tmax1-1).
-    total_time = (config.tmax1 - 1) * config.timestep
+    def validate_propagation(self):
+        if self.config.propagation not in ["Sparse", "RK4"]:
+            warnings.warn(f"NISE 2017 Propagation method '{self.config.propagation}' is not directly supported. Falling back to default TorchNISE propagation.")
+
+class PropagationBasedCalculation(NISECalculation):
+    """Base class for calculations involving time propagation (Population, Diffusion, Absorption, etc.)."""
     
-    params = NISEParameters(
-        dt=config.timestep,
-        total_time=total_time,
-        temperature=config.temperature,
-        mode="Population" if config.technique in ["Pop", "Population"] else "Absorption",
-        save_interval=1,
-        device="cuda" if torch.cuda.is_available() else "cpu",
-        save_u=True 
-    )
-    
-    # Load Hamiltonian
-    print(f"Loading Hamiltonian from {config.hamiltonian_file}")
-    if not os.path.exists(config.hamiltonian_file):
-        raise FileNotFoundError(f"Hamiltonian file not found: {config.hamiltonian_file}")
-        
-    h_nise = load_nise2017_hamiltonian(
-        config.hamiltonian_file,
-        config.singles,
-        config.doubles,
-        config.begin_point,
-        config.end_point,
-        config.sample_rate,
-        config.tmax1
-    )
-    
-    # Load Dipole if Absorption
-    mu_torch = None
-    if config.technique == "Absorption":
-        print(f"Loading Dipole from {config.dipole_file}")
-        mu_nise = load_nise2017_dipole(
-            config.dipole_file,
-            config.singles,
-            config.begin_point,
-            config.end_point,
-            config.sample_rate,
-            config.tmax1
+    def get_common_params(self, mode="Population"):
+        total_time = (self.config.tmax1 - 1) * self.config.timestep
+        return NISEParameters(
+            dt=self.config.timestep,
+            total_time=total_time,
+            temperature=self.config.temperature,
+            mode=mode,
+            save_interval=1,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+            save_u=True 
         )
-        # Shift mu the same way as h
+
+    def load_and_prep_hamiltonian(self):
+        print(f"Loading Hamiltonian from {self.config.hamiltonian_file}")
+        if not os.path.exists(self.config.hamiltonian_file):
+            raise FileNotFoundError(f"Hamiltonian file not found: {self.config.hamiltonian_file}")
+            
+        h_nise = self.loader.load_hamiltonian()
+        
+        # SHIFT: NISE 2017 uses H(t) to propagate from t to t+1.
+        # TorchNISE uses hfull[t] to propagate from t-1 to t.
+        h_torch = torch.zeros_like(h_nise)
+        if self.config.tmax1 > 1:
+            h_torch[1:] = h_nise[:-1]
+        h_torch[0] = h_nise[0] 
+        return h_torch, h_nise # Return original too if needed for modifications
+
+    def run_propagation(self, h_torch, params, initial_state=None):
+        if initial_state is None:
+            initial_state = torch.zeros(self.config.singles)
+            initial_state[0] = 1.0
+            
+        num_realizations = self.config.end_point - self.config.begin_point
+        from torchnise.nise import nise_propagate
+        print(f"Running NISE calculation on {params.device}...")
+        return nise_propagate(h_torch, num_realizations, initial_state, params)
+
+class PopulationCalculation(PropagationBasedCalculation):
+    def run(self):
+        self.validate_propagation()
+        params = self.get_common_params(mode="Population")
+        h_torch, _ = self.load_and_prep_hamiltonian()
+        
+        # Determine initial state
+        initial_state = torch.zeros(self.config.singles)
+        # NISE 2017 initial state site is already 0-indexed in config
+        site_idx = self.config.initial_state_site
+        if site_idx < 0 or site_idx >= self.config.singles:
+             # Fallback or default
+             site_idx = 0
+        initial_state[site_idx] = 1.0
+
+        population, coherence, u = self.run_propagation(h_torch, params, initial_state)
+        
+        print("Saving output to Pop.dat and PopF.dat")
+        total_time = (self.config.tmax1 - 1) * self.config.timestep
+        save_nise2017_output(u, total_time, self.config.timestep)
+        print("Done.")
+
+class ResponseFunctionCalculation(PropagationBasedCalculation):
+    """Base class for Response Function calculations (Absorption, 2DES, etc.)."""
+    pass
+
+class AbsorptionCalculation(ResponseFunctionCalculation):
+    def run(self):
+        self.validate_propagation()
+        params = self.get_common_params(mode="Absorption")
+        h_torch, h_nise = self.load_and_prep_hamiltonian()
+        
+        # Load Dipole
+        print(f"Loading Dipole from {self.config.dipole_file}")
+        mu_nise = self.loader.load_dipole()
         mu_torch = torch.zeros_like(mu_nise)
-        if config.tmax1 > 1:
+        if self.config.tmax1 > 1:
             mu_torch[1:] = mu_nise[:-1]
         mu_torch[0] = mu_nise[0]
-        params.mu = mu_torch.cpu().numpy() # TorchNISE expects (steps, realizations, n, 3)? 
-        # Actually absorption_time_domain expects (realizations, timesteps, n, 3) 
-        # but run_nise loop uses chunks. 
-        # Let's check absorption_time_domain shape expectations again.
-        # it says (realizations, timesteps, n, sites). Wait.
-        # line 20: (realizations, timesteps, n_sites, n_sites) for U.
-        # line 21: (realizations, timesteps, n_sites, 3) for mu.
-        
-    # SHIFT h for Rotating Frame if Absorption
-    # NISE 2017 subtracts (min + max) / 2 from the diagonal
-    shifte = 0.0
-    if config.technique == "Absorption":
-        shifte = (config.min1 + config.max1) / 2.0
+        params.mu = mu_torch.cpu().numpy()
+
+        # Rotating Frame Shift
+        shifte = (self.config.min1 + self.config.max1) / 2.0
         print(f"Applying rotating frame shift: {shifte} cm-1")
-        for i in range(config.singles):
-            h_nise[:, :, i, i] -= shifte
-
-    # Apply Hamiltonian one-step shift
-    num_realizations = config.end_point - config.begin_point
-    h_torch = torch.zeros_like(h_nise)
-    if config.tmax1 > 1:
-        h_torch[1:] = h_nise[:-1]
-    h_torch[0] = h_nise[0] 
-    
-    # Initial state
-    initial_state = torch.zeros(config.singles)
-    initial_state[0] = 1.0 
-    
-    from torchnise.nise import nise_propagate, absorption_time_domain
-    
-    print(f"Running NISE calculation on {params.device}...")
-    
-    population, coherence, u = nise_propagate(
-        h_torch,
-        num_realizations,
-        initial_state,
-        params
-    )
-    
-    if config.technique in ["Pop", "Population"]:
-        print("Saving output to Pop.dat and PopF.dat")
-        save_nise2017_output(u, total_time, config.timestep)
-    else:
-        # Technique Absorption
+        # Apply shift to h_torch
+        # Original code applied shift to h_nise then copied. We can apply to h_torch directly.
+        for i in range(self.config.singles):
+            h_torch[:, :, i, i] -= shifte
+            
+        initial_state = torch.zeros(self.config.singles)
+        initial_state[0] = 1.0 # Standard start? usually arbitrary for absorption if dipoles handled correctly
+        
+        population, coherence, u = self.run_propagation(h_torch, params, initial_state)
+        
         print("Calculating time-domain absorption...")
-        # TorchNISE absorption_time_domain expects mu as (realizations, steps, n, 3)
-        # Our mu_torch is (steps, realizations, n, 3)
+        from torchnise.nise import absorption_time_domain
+        # mu_torch is (steps, realizations, n, 3), need (realizations, steps, n, 3)
         mu_for_absorb = mu_torch.permute(1, 0, 2, 3).cpu().numpy()
-        avg_s1 = absorption_time_domain(u.cpu().numpy(), mu_for_absorb, dt=config.timestep)
+        avg_s1 = absorption_time_domain(u.cpu().numpy(), mu_for_absorb, dt=self.config.timestep)
+        
         print("Saving output to Absorption.dat and TD_Absorption.dat")
-        save_nise2017_absorption(torch.tensor(avg_s1), config)
-    print("Done.")
+        save_nise2017_absorption(torch.tensor(avg_s1), self.config)
+        print("Done.")
 
-def run_correlation(config: NISE2017Config):
-    from torchnise.spectral_density_generation import get_auto, get_cross, sd_reconstruct_fft
-    
-    # Load Hamiltonian diagonal
-    stride = 4 + 4 * (config.singles * (config.singles + 1) // 2 + config.doubles * (config.doubles + 1) // 2)
-    sites = config.singles
-    length = config.length
-    
-    # We load the entire trajectory for correlation
-    freq_traj = np.zeros((length, sites))
-    with open(config.hamiltonian_file, 'rb') as f:
-        for t in range(length):
-            f.seek(t * stride + 4) # Skip time index
-            data = f.read(4 * sites) # Diagonal is the first 'singles' elements of the triangular matrix
-            if not data:
-                break
-            freq_traj[t] = struct.unpack(f"{sites}f", data)
-            
-    # Autocorrelation
-    # NISE 2017: T = config.tmax1. Total length = config.length
-    T = config.tmax1
-    TT = config.length
-    dt = config.timestep
-    
-    auto_matrix = np.zeros((sites, sites, length))
-    
-    print("Calculating Correlation...")
-    for i in range(sites):
-        for j in range(i, sites):
-            # Autocorrelation or Cross-correlation
-            data_i = freq_traj[:, i] - np.mean(freq_traj[:, i])
-            data_j = freq_traj[:, j] - np.mean(freq_traj[:, j])
-            
-            # get_auto expects (realizations, timesteps)
-            # We treat the single trajectory as one realization if it's long enough,
-            # but get_auto uses FFT-based autocorrelation.
-            # Let's ensure it's (1, length) 
-            noise_i = data_i.reshape(1, -1)
-            noise_j = data_j.reshape(1, -1)
-            
-            # For cross-correlation, get_auto might not be directly applicable if it
-            # only does autocorrelation. Checking get_auto source... 
-            # It calls expval_auto which does result[i] = np.mean(noise[:, i:] * noise[:, :-i])
-            # We can implement a simple cross-correlation here.
-            
-            if i == j:
-                auto = get_auto(noise_i)
-                # auto is length/2 by default in get_auto
-                auto_matrix[i, i, :len(auto)] = auto
-            else:
-                if config.technique == "Correlation":
-                    # Cross correlation: <di(0)dj(t)>
-                    cross = get_cross(noise_i, noise_j)
-                    auto_matrix[i, j, :len(cross)] = cross
-                    auto_matrix[j, i, :len(cross)] = cross # Symmetry
-                else:
-                    # Autocorrelation mode, skip cross
-                    pass
-            
-    # Spectral Density Reconstruction for each site
-    w_axis = None
-    sd_results = []
-    if sites > 0:
-        for i in range(sites):
-             auto = auto_matrix[i, i, :length//2]
-             J_new, curr_w_axis, _ = sd_reconstruct_fft(
-                  auto, dt, config.temperature, damping_type="gauss", cutoff=T*dt
-             )
-             sd_results.append(J_new)
-             w_axis = curr_w_axis
+class TwoDESCalculation(ResponseFunctionCalculation):
+    """
+    Placeholder for 2D Electronic Spectroscopy (2DES) calculation.
+    """
+    def run(self):
+        raise NotImplementedError("2D Spectroscopy is not yet implemented.")
+
+class DiffusionCalculation(PropagationBasedCalculation):
+    def run(self):
+        # We need custom logic because it runs propagation multiple times (per site)
+        params = self.get_common_params(mode="Population")
+        h_torch, _ = self.load_and_prep_hamiltonian()
         
-    # Save SpectralDensity.dat
-    if w_axis is not None:
-        with open("SpectralDensity.dat", 'w') as f:
-            for i in range(len(w_axis)):
-                 line = f"{w_axis[i]:.6f} " + " ".join([f"{sd_results[s][i]:.6e}" for s in range(sites)]) + "\n"
-                 f.write(line)
-
-    # CorrelationMatrix.dat
-    with open("CorrelationMatrix.dat", 'w') as f:
-        for t in range(T):
-            line = f"{t*dt:.6f} "
-            for i in range(sites):
-                for j in range(i, sites):
-                    line += f"{auto_matrix[i, j, t]:.6e} "
-                    if config.technique == "Autocorrelation":
-                        break # Only diagonal
-            f.write(line + "\n")
+        pos_traj, box_size = self.loader.load_positions()
+        
+        num_realizations = self.config.end_point - self.config.begin_point
+        msd_pop = torch.zeros(self.config.tmax1)
+        
+        print(f"Running Diffusion calculation on {params.device}...")
+        
+        for start_site in range(self.config.singles):
+            initial_state = torch.zeros(self.config.singles)
+            initial_state[start_site] = 1.0
             
-    print("Done.")
-
-def run_diffusion(config: NISE2017Config):
-    # Load Hamiltonian and Positions
-    # For diffusion, we need propagation
-    total_time = (config.tmax1 - 1) * config.timestep
-    params = NISEParameters(
-        dt=config.timestep,
-        total_time=total_time,
-        temperature=config.temperature,
-        mode="Population",
-        save_u=True,
-        device="cuda" if torch.cuda.is_available() else "cpu"
-    )
-    
-    h_nise = load_nise2017_hamiltonian(
-        config.hamiltonian_file, config.singles, config.doubles,
-        config.begin_point, config.end_point, config.sample_rate, config.tmax1
-    )
-    # Applying shift logic as in run_nise2017
-    h_torch = torch.zeros_like(h_nise)
-    if config.tmax1 > 1:
-        h_torch[1:] = h_nise[:-1]
-    h_torch[0] = h_nise[0]
-
-    # Load Positions
-    pos_traj, box_size = load_nise2017_positions(config.position_file, config.singles, config.length)
-    
-    # We need to run for each realization and average
-    num_realizations = config.end_point - config.begin_point
-    msd_pop = torch.zeros(config.tmax1)
-    msd_ori = torch.zeros(config.tmax1)
-    
-    from torchnise.nise import nise_propagate
-    
-    print(f"Running Diffusion calculation on {params.device}...")
-    # For diffusion, NISE 2017 seems to start multiple realizations from ALL sites?
-    # actually vecr[a+a*N]=1.0 in calc_Diffusion.c loop (line 164)
-    # and it does it for each 'a' in singles.
-    # So it actually calculates the diffusion starting from EACH site.
-    
-    for start_site in range(config.singles):
-        initial_state = torch.zeros(config.singles)
-        initial_state[start_site] = 1.0
+            _, _, u = self.run_propagation(h_torch, params, initial_state)
+            probs = (torch.abs(u)**2).real.cpu() # (real, t, b, a)
+            
+            for r in range(num_realizations):
+                ti = (self.config.begin_point + r) * self.config.sample_rate
+                p0 = pos_traj[ti] 
+                for t in range(self.config.tmax1):
+                    tj = ti + t
+                    pt = pos_traj[tj]
+                    for b in range(self.config.singles):
+                        dx = pt[b, 0] - p0[start_site, 0]
+                        dy = pt[b, 1] - p0[start_site, 1]
+                        dz = pt[b, 2] - p0[start_site, 2]
+                        if box_size > 0:
+                            dx -= box_size * torch.round(dx / box_size)
+                            dy -= box_size * torch.round(dy / box_size)
+                            dz -= box_size * torch.round(dz / box_size)
+                        d2 = dx*dx + dy*dy + dz*dz
+                        msd_pop[t] += (probs[r, t, b, 0] * d2)
+                        
+        norm = num_realizations * self.config.singles
+        msd_pop /= norm
         
-        _, _, u = nise_propagate(h_torch, num_realizations, initial_state, params)
-        # u is (real, t, current_site, start_site)
-        probs = (torch.abs(u)**2).real.cpu() # (real, t, b, a)
+        with open("RMSD.dat", 'w') as f:
+            for t in range(self.config.tmax1):
+                f.write(f"{t*self.config.timestep:.6f} {msd_pop[t]:.6e} 0.000000e+00\n")
+        print("Done.")
+
+class StaticPropertyCalculation(NISECalculation):
+    """Base class for calculations that analyse trajectories without propagation."""
+    pass
+
+class CorrelationCalculation(StaticPropertyCalculation):
+    def run(self):
+        from torchnise.spectral_density_generation import get_auto, get_cross, sd_reconstruct_fft
         
-        # Calculate MSD
-        for r in range(num_realizations):
-            ti = (config.begin_point + r) * config.sample_rate
-            p0 = pos_traj[ti] # shape (n_sites, 3)
-            for t in range(config.tmax1):
-                tj = ti + t
-                pt = pos_traj[tj] # shape (n_sites, 3)
+        freq_traj = self.loader.load_hamiltonian_diagonal()
+        sites = self.config.singles
+        length = self.config.length
                 
-                # PopP: sum_b P(b,t) * dist(pos_b(t), pos_a(start))
-                # Dist function in NISE correct for PBC
-                # dist(pt[b], p0[a])
-                for b in range(config.singles):
-                    dx = pt[b, 0] - p0[start_site, 0]
-                    dy = pt[b, 1] - p0[start_site, 1]
-                    dz = pt[b, 2] - p0[start_site, 2]
-                    # PBC
-                    if box_size > 0:
-                        dx -= box_size * torch.round(dx / box_size)
-                        dy -= box_size * torch.round(dy / box_size)
-                        dz -= box_size * torch.round(dz / box_size)
-                    d2 = dx*dx + dy*dy + dz*dz
-                    msd_pop[t] += (probs[r, t, b, 0] * d2) # initial site is 0 in 'initial_state' slice
-                    
-    # Normalization: realized samples * singles
-    norm = num_realizations * config.singles
-    msd_pop /= norm
+        T = self.config.tmax1
+        dt = self.config.timestep
+        auto_matrix = np.zeros((sites, sites, length))
+        
+        print("Calculating Correlation...")
+        for i in range(sites):
+            for j in range(i, sites):
+                data_i = freq_traj[:, i] - np.mean(freq_traj[:, i])
+                data_j = freq_traj[:, j] - np.mean(freq_traj[:, j])
+                
+                noise_i = data_i.reshape(1, -1)
+                noise_j = data_j.reshape(1, -1)
+                
+                if i == j:
+                    auto = get_auto(noise_i)
+                    auto_matrix[i, i, :len(auto)] = auto
+                else:
+                    if self.config.technique == "Correlation":
+                        cross = get_cross(noise_i, noise_j)
+                        auto_matrix[i, j, :len(cross)] = cross
+                        auto_matrix[j, i, :len(cross)] = cross
+                        
+        w_axis = None
+        sd_results = []
+        if sites > 0:
+            for i in range(sites):
+                 auto = auto_matrix[i, i, :length//2]
+                 J_new, curr_w_axis, _ = sd_reconstruct_fft(
+                      auto, dt, self.config.temperature, damping_type="gauss", cutoff=T*dt
+                 )
+                 sd_results.append(J_new)
+                 w_axis = curr_w_axis
+            
+        if w_axis is not None:
+            with open("SpectralDensity.dat", 'w') as f:
+                for i in range(len(w_axis)):
+                     line = f"{w_axis[i]:.6f} " + " ".join([f"{sd_results[s][i]:.6e}" for s in range(sites)]) + "\n"
+                     f.write(line)
+
+        with open("CorrelationMatrix.dat", 'w') as f:
+            for t in range(T):
+                line = f"{t*dt:.6f} "
+                for i in range(sites):
+                    for j in range(i, sites):
+                        line += f"{auto_matrix[i, j, t]:.6e} "
+                        if self.config.technique == "Autocorrelation":
+                            break 
+                f.write(line + "\n")
+        print("Done.")
+
+# Registry of available calculation modes
+CALCULATION_MODES: Dict[str, Type[NISECalculation]] = {
+    "Pop": PopulationCalculation,
+    "Population": PopulationCalculation,
+    "Absorption": AbsorptionCalculation,
+    "Correlation": CorrelationCalculation,
+    "Autocorrelation": CorrelationCalculation,
+    "Dif": DiffusionCalculation,
+    "Diffusion": DiffusionCalculation,
+    "2DES": TwoDESCalculation, # Placeholder
+}
+
+# List of all known techniques in NISE 2017 for validation
+ALL_NISE_TECHNIQUES = [
+    "Pop", "Population", "Analyse", "Analyze", "AnalyseFull", "AnalyzeFull",
+    "Correlation", "Autocorrelation", "Dif", "Diffusion", "Ani", "Anisotropy",
+    "Absorption", "DOS", "MCFRET", "Redfield", "Luminescence", "PL", "Fluorescence",
+    "LD", "CD", "Raman", "SFG", "2DES"
+]
+
+
+def run_nise2017(input_file_path: str):
+    print(f"Loading NISE 2017 input: {input_file_path}")
+    parser = NISEInputParser(input_file_path)
+    config = parser.parse()
     
-    # Save RMSD.dat
-    with open("RMSD.dat", 'w') as f:
-        for t in range(config.tmax1):
-            f.write(f"{t*config.timestep:.6f} {msd_pop[t]:.6e} 0.000000e+00\n")
-    print("Done.")
+    technique = config.technique
+    if technique not in CALCULATION_MODES:
+        if technique in ALL_NISE_TECHNIQUES:
+            raise NotImplementedError(f"Technique '{technique}' is a valid NISE 2017 technique but is not yet implemented in the TorchNISE adapter.")
+        else:
+            raise ValueError(f"Unknown NISE 2017 technique: '{technique}'")
+            
+    calc_class = CALCULATION_MODES[technique]
+    calculation = calc_class(config)
+    calculation.run()
 
 def main():
     import sys
@@ -742,14 +701,7 @@ def main():
         return
         
     input_file = sys.argv[1]
-    config = parse_nise2017_input(input_file)
-    
-    if config.technique in ["Correlation", "Autocorrelation"]:
-        run_correlation(config)
-    elif config.technique in ["Dif", "Diffusion"]:
-        run_diffusion(config)
-    else:
-        run_nise2017(input_file)
+    run_nise2017(input_file)
 
 if __name__ == "__main__":
     main()
