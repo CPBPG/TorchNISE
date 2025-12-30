@@ -14,7 +14,7 @@ from torchnise.train_mlnise import train_mlnise_hogwild
 train_ds = MLNiseDrudeDataset(
     dataset_folder="GeneratedHeom",
     dataset_name="mlnise_train_data",
-    generate_if_missing=False  # will load existing data
+    generate_if_missing=False,  # will load existing data
 )
 print(f"Loaded training dataset: length = {len(train_ds)}")
 
@@ -22,7 +22,7 @@ print(f"Loaded training dataset: length = {len(train_ds)}")
 model = MLNISEModel()
 model.share_memory()  # needed for Hogwild multi-process
 # 3) load previouis checkopoint if available
-#model.load_state_dict(torch.load("mlnise_model_final4.pt"))
+# model.load_state_dict(torch.load("mlnise_model_final4.pt"))
 # 4) Train with Hogwild
 device = torch.device("cpu")  # or "cuda" if you have a GPU
 trained_model = train_mlnise_hogwild(
@@ -33,10 +33,9 @@ trained_model = train_mlnise_hogwild(
     learning_rate=0.0005,
     runname="mlnise_demo_run",
     device=device,
-    realizations=100  
+    realizations=100,
 )
 
 # 4) Save final model weights
 torch.save(trained_model.state_dict(), "mlnise_model_final.pt")
 print("Training complete. Model saved to 'mlnise_model_final.pt'.")
-

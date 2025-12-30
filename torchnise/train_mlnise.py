@@ -1,8 +1,8 @@
 # torchnise/train_mlnise.py
 
 """
-This module demonstrates Hogwild-style training of an MLNISE model 
-using a PyTorch Dataset. It is intended to be imported and called 
+This module demonstrates Hogwild-style training of an MLNISE model
+using a PyTorch Dataset. It is intended to be imported and called
 from another script (not from the command line directly).
 
 Example usage in a separate script:
@@ -67,7 +67,6 @@ def suppress_stdout():
             tqdm.tqdm = tqdm_backup
 
 
-
 def _train_one_epoch(
     model: torch.nn.Module,
     device: torch.device,
@@ -76,7 +75,7 @@ def _train_one_epoch(
     epoch: int,
     realizations: int,
     log_fn: Optional[Callable[[str], None]] = None,
-    process_num: Optional[int] = 0
+    process_num: Optional[int] = 0,
 ) -> None:
     """
     Performs one epoch of training on a single worker (process) in Hogwild mode.
@@ -96,11 +95,14 @@ def _train_one_epoch(
 
     model.train()
     if log_fn is None:
-        log_fn=print
-    #with torch.autograd.set_detect_anomaly(True):
+        log_fn = print
+    # with torch.autograd.set_detect_anomaly(True):
     batch_losses = []
-    for batch_idx, (inputs, pop_target) in (tqdm.tqdm(enumerate(train_loader),total=len(train_loader)) 
-                                if process_num==0 else enumerate(train_loader)):
+    for batch_idx, (inputs, pop_target) in (
+        tqdm.tqdm(enumerate(train_loader), total=len(train_loader))
+        if process_num == 0
+        else enumerate(train_loader)
+    ):
         """
         inputs = (H, T, E_reorg, tau, total_time, dt, psi0, n_sites)
             - H: (n_sites, n_sites), for a static Hamiltonian,
@@ -114,7 +116,7 @@ def _train_one_epoch(
         (h, temperature, E_reorg, tau, total_time, dt_fs, psi0, n_sites) = [
             x.to(device).squeeze(0) for x in inputs
         ]
-        #print(h)
+        # print(h)
         pop_target = pop_target.to(device).squeeze(0).requires_grad_()
 
         # Prepare MLNISE model inputs:
@@ -122,12 +124,13 @@ def _train_one_epoch(
         tau_float = tau.item()
         mlnise_inputs = (
             torch.tensor([reorg_float], device=device),
-            torch.tensor([tau_float], device=device)
+            torch.tensor([tau_float], device=device),
         )
         gamma = 1 / tau
-        spectral_func = functools.partial(spectral_drude,temperature=temperature,
-                                        strength=reorg_float, gamma=gamma)
-        spectral_funcs = [spectral_func]*n_sites
+        spectral_func = functools.partial(
+            spectral_drude, temperature=temperature, strength=reorg_float, gamma=gamma
+        )
+        spectral_funcs = [spectral_func] * n_sites
         # Use run_nise to get predicted populations
         with suppress_stdout():
             pop_pred, t_axis = run_nise(
@@ -141,7 +144,7 @@ def _train_one_epoch(
                 t_correction="MLNISE",
                 mode="Population",
                 device=device,
-                mlnise_model=model,       # important for the correction
+                mlnise_model=model,  # important for the correction
                 mlnise_inputs=mlnise_inputs,
                 track_grads=True,
             )
@@ -149,8 +152,8 @@ def _train_one_epoch(
 
         # Match length if there's any off-by-one
         min_len = min(pop_pred.shape[0], pop_target.shape[0])
-        #print(pop_pred.shape)
-        #print(pop_target.shape)
+        # print(pop_pred.shape)
+        # print(pop_target.shape)
         loss = F.mse_loss(pop_pred[:min_len], pop_target[:min_len])
 
         optimizer.zero_grad()
@@ -162,27 +165,32 @@ def _train_one_epoch(
             if param.grad is not None:
                 if param.requires_grad:
                     grad_norm = param.grad.norm().item()
-                    #log_fn(f"[GRAD NORM] {name}: {grad_norm:.6f}")
+                    # log_fn(f"[GRAD NORM] {name}: {grad_norm:.6f}")
                     if torch.isnan(param.grad).any() or torch.isnan(param.data).any():
                         skip_update = True
                         log_fn(f"[WARN] NaN encountered in {name} -> skipping update.")
                         break
-                
+
             else:
-                print(name,param)
+                print(name, param)
 
         if not skip_update:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
             optimizer.step()
         batch_losses.append(loss.item())
-        #log_fn(f"Epoch {epoch} | Batch {batch_idx} | Loss: {loss.item():.4f}")
-        
-        if batch_idx%10==0 and len(batch_losses)>=10:
-            avg_loss_last_10 = sum(batch_losses[-10:]) / len(batch_losses[-10:]) if batch_losses else 0.0
-            log_fn(f"Process {process_num} | Epoch {epoch} | Batch {batch_idx-10}-{batch_idx} | Avg Loss: {avg_loss_last_10:.4f}")
+        # log_fn(f"Epoch {epoch} | Batch {batch_idx} | Loss: {loss.item():.4f}")
+
+        if batch_idx % 10 == 0 and len(batch_losses) >= 10:
+            avg_loss_last_10 = (
+                sum(batch_losses[-10:]) / len(batch_losses[-10:])
+                if batch_losses
+                else 0.0
+            )
+            log_fn(
+                f"Process {process_num} | Epoch {epoch} | Batch {batch_idx-10}-{batch_idx} | Avg Loss: {avg_loss_last_10:.4f}"
+            )
     avg_loss = sum(batch_losses) / len(batch_losses) if batch_losses else 0.0
     log_fn(f"Process {process_num} | Epoch {epoch} complete | Avg Loss: {avg_loss:.4f}")
-
 
 
 def train_mlnise_hogwild(
@@ -198,16 +206,16 @@ def train_mlnise_hogwild(
     save_interval: int = 5,
     save_checkpoint_fn: Optional[Callable[[int, torch.nn.Module], None]] = None,
     log_fn: Optional[Callable[[str], None]] = None,
-    realizations: int = 1
+    realizations: int = 1,
 ) -> torch.nn.Module:
     """
     Trains a given MLNISE model in a Hogwild (multi-process) fashion.
     Each process operates on a partition of the dataset with shared parameters.
 
     Args:
-        model (torch.nn.Module): The MLNISE model to train. Must have 
+        model (torch.nn.Module): The MLNISE model to train. Must have
             share_memory() called on it if using Hogwild.
-        dataset (Dataset): The dataset from which samples are drawn 
+        dataset (Dataset): The dataset from which samples are drawn
             (e.g. MLNiseDrudeDataset).
         num_epochs (int, optional): Number of epochs to train. Defaults to 10.
         num_processes (int, optional): Number of parallel processes for Hogwild. Defaults to 4.
@@ -224,7 +232,7 @@ def train_mlnise_hogwild(
             If None, no checkpoints are saved except final.
         log_fn (Callable, optional): Logging function. If None, logs go to stdout.
         realizations (int, optional): Number of noise realizations to pass to run_nise(...).
-            If you want multi-realization runs, ensure your `H` shape is 
+            If you want multi-realization runs, ensure your `H` shape is
             (time_steps, realizations, n_sites, n_sites). Defaults to 1.
 
     Returns:
@@ -234,11 +242,12 @@ def train_mlnise_hogwild(
         device = torch.device("cpu")
 
     if log_fn is None:
-        log_fn=print
+        log_fn = print
 
     # Prepare an optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
-                                     betas=(0.9, 0.999),weight_decay=1e-5)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=learning_rate, betas=(0.9, 0.999), weight_decay=1e-5
+    )
     model.share_memory()
     # Optional scheduler (e.g. StepLR)
     scheduler = None
@@ -251,7 +260,7 @@ def train_mlnise_hogwild(
     for epoch in range(1, num_epochs + 1):
         log_fn(f"===== Starting epoch {epoch}/{num_epochs} =====")
         log_fn(f"Runname: {runname}")
-        if num_processes>1:
+        if num_processes > 1:
             # Hogwild: spawn multiple processes, each with a DistributedSampler
             processes = []
             for rank in range(num_processes):
@@ -260,17 +269,24 @@ def train_mlnise_hogwild(
                     num_replicas=num_processes,
                     rank=rank,
                     shuffle=True,
-                    seed=123+epoch 
+                    seed=123 + epoch,
                 )
                 train_loader = DataLoader(
-                    dataset=dataset,
-                    sampler=sampler,
-                    batch_size=1
+                    dataset=dataset, sampler=sampler, batch_size=1
                 )
 
                 p = mp.Process(
                     target=_train_one_epoch,
-                    args=(model, device, train_loader, optimizer, epoch, realizations, log_fn, rank)
+                    args=(
+                        model,
+                        device,
+                        train_loader,
+                        optimizer,
+                        epoch,
+                        realizations,
+                        log_fn,
+                        rank,
+                    ),
                 )
                 p.start()
                 processes.append(p)
@@ -279,18 +295,16 @@ def train_mlnise_hogwild(
                 p.join()
         else:
             sampler = DistributedSampler(
-                    dataset=dataset,
-                    num_replicas=num_processes,
-                    rank=0,
-                    shuffle=True,
-                    seed=123  # or configure as you like
-                )
-            train_loader = DataLoader(
                 dataset=dataset,
-                sampler=sampler,
-                batch_size=1
+                num_replicas=num_processes,
+                rank=0,
+                shuffle=True,
+                seed=123,  # or configure as you like
             )
-            _train_one_epoch(model, device, train_loader, optimizer, epoch, realizations, log_fn)
+            train_loader = DataLoader(dataset=dataset, sampler=sampler, batch_size=1)
+            _train_one_epoch(
+                model, device, train_loader, optimizer, epoch, realizations, log_fn
+            )
 
         # Scheduler step
         if scheduler is not None:

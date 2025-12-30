@@ -12,12 +12,82 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import tqdm
+
 # Attempt to import PyHEOM; if unavailable, dataset generation will fail unless pre-generated data is present.
 try:
     import pyheom
+
     _HAS_PYHEOM = True
 except ImportError:
     _HAS_PYHEOM = False
+
+
+
+def _generate_and_save_sample(args):
+    (
+        filename,
+        seed,
+        n_sites,
+        min_tau,
+        max_tau,
+        min_temp,
+        max_temp,
+        min_reorg,
+        max_reorg,
+        min_energy,
+        max_energy,
+        min_coupling,
+        max_coupling,
+        total_time,
+        dt_fs,
+        depth,
+    ) = args
+
+    import random
+    import numpy as np
+    
+    # Re-seed for isolation
+    random.seed(seed)
+    np.random.seed(seed)
+
+    tau_sample = np.random.uniform(min_tau, max_tau)
+    temp_sample = np.random.uniform(min_temp, max_temp)
+    reorg_sample = np.random.uniform(min_reorg, max_reorg)
+
+    # Build random Hamiltonian
+    static_ham = np.zeros((n_sites, n_sites), dtype=np.float32)
+    for i in range(n_sites):
+        static_ham[i, i] = np.random.uniform(min_energy, max_energy)
+
+    for i in range(n_sites):
+        for j in range(i + 1, n_sites):
+            coupling = np.random.uniform(min_coupling, max_coupling)
+            static_ham[i, j] = coupling
+            static_ham[j, i] = coupling
+
+    # Run PyHEOM
+    population = runHeomDrude(
+        n_state=n_sites,
+        H=static_ham,
+        tau=tau_sample,
+        Temp=temp_sample,
+        E_reorg=reorg_sample,
+        dt__unit=dt_fs,
+        initiallyExcitedState=0,
+        totalTime=total_time,
+        tier=depth,
+    )
+    
+    # Save to temp file
+    np.savez(
+        filename,
+        ham=static_ham,
+        pop=population,
+        temp=temp_sample,
+        reorg=reorg_sample,
+        tau=tau_sample
+    )
+
 
 
 def runHeomDrude(
@@ -30,11 +100,11 @@ def runHeomDrude(
     initiallyExcitedState: int,
     totalTime: float,
     tier: int,
-    matrix_type: str = "sparse"
+    matrix_type: str = "sparse",
 ) -> np.ndarray:
     """
-    Generate time-dependent populations via PyHEOM for a system with Drude 
-    spectral density. Each site is coupled to a bath with reorganization 
+    Generate time-dependent populations via PyHEOM for a system with Drude
+    spectral density. Each site is coupled to a bath with reorganization
     energy E_reorg and correlation time derived from tau.
 
     Args:
@@ -56,7 +126,7 @@ def runHeomDrude(
     """
 
     pyheom.units["energy"] = pyheom.unit.wavenumber
-    pyheom.units["time"]   = pyheom.unit.femtosecond
+    pyheom.units["time"] = pyheom.unit.femtosecond
 
     # Approx. relation to Drude damping
     gamma = 53.08 / tau * 100
@@ -77,7 +147,7 @@ def runHeomDrude(
         n_fsd_rec=2,
         chi_fsd=100.0,
         n_psd=1,
-        type_psd="n-1/n"
+        type_psd="n-1/n",
     )
 
     # Combine for each site
@@ -90,51 +160,52 @@ def runHeomDrude(
         static_ham = H[0]
     else:
         static_ham = H if H.ndim == 2 else H[0]
-    dtype           = np.complex128
+    dtype = np.complex128
     static_ham = static_ham.astype(dtype)
-    space           = 'liouville'
-    format          = 'dense'
-    engine          = 'eigen'
-    solver          = 'lsrk4'
-    order_liouville = 'row_major'
+    space = "liouville"
+    format = matrix_type
+    engine = "eigen"
+    solver = "lsrk4"
+    order_liouville = "row_major"
     # Setup PyHEOM
     h_solver = pyheom.heom_solver(
-        static_ham,noises,
-        space=space, format=format, engine=engine,
+        static_ham,
+        noises,
+        space=space,
+        format=format,
+        engine=engine,
         order_liouville=order_liouville,
         solver=solver,
         engine_args=dict(),
-        depth = tier,
-        n_inner_threads = 4,
-        n_outer_threads = 1
+        depth=tier,
+        n_inner_threads=1,
+        n_outer_threads=1,
     )
     n_storage = h_solver.storage_size()
-    rho = np.zeros((n_storage,n_state,n_state), dtype=dtype)
-    rho_0 = rho[0,:,:]
-    rho_0[0,0] = 1
+    rho = np.zeros((n_storage, n_state, n_state), dtype=dtype)
+    rho_0 = rho[0, :, :]
+    rho_0[0, 0] = 1
     callback_interval = 2
-    dt__unit = float(dt__unit)/callback_interval
-    
+    dt__unit = float(dt__unit) / callback_interval
+
     count = int(totalTime / dt__unit) + 1
-    t_list= np.arange(0, count, callback_interval)*dt__unit
+    t_list = np.arange(0, count, callback_interval) * dt__unit
     population = np.zeros((len(t_list), n_state), dtype=np.float32)
-    solver_params    = dict(
-    dt = dt__unit,
-    # atol=1e-6, rtol=1e-3
-    )   
-    
+    solver_params = dict(
+        dt=dt__unit,
+        # atol=1e-6, rtol=1e-3
+    )
+
     def callback(t):
-        idx = round(t / (dt__unit*pyheom.calc_unit() )/ callback_interval)
-        #idx_non_int=t / (dt__unit*pyheom.calc_unit() )/ callback_interval
-        #print(idx,idx_non_int,t, rho_0[0,0].real, rho_0[1,1].real)
-        
-        pop=np.zeros(n_state)
-        if idx<len(t_list):
+        idx = round(t / (dt__unit * pyheom.calc_unit()) / callback_interval)
+        # idx_non_int=t / (dt__unit*pyheom.calc_unit() )/ callback_interval
+        # print(idx,idx_non_int,t, rho_0[0,0].real, rho_0[1,1].real)
+
+        pop = np.zeros(n_state)
+        if idx < len(t_list):
             for i in range(n_state):
-                population[idx, i] = rho_0[i,i].real
-                pop[i]= rho_0[i,i].real
-        
-    
+                population[idx, i] = rho_0[i, i].real
+                pop[i] = rho_0[i, i].real
 
     h_solver.solve(rho, t_list, callback, **solver_params)
     h_solver = None
@@ -143,17 +214,18 @@ def runHeomDrude(
 
 class MLNiseDrudeDataset(Dataset):
     """
-    A Dataset class that uses PyHEOM to generate or load population 
-    dynamics for training ML-based NISE. Each sample's Hamiltonian 
+    A Dataset class that uses PyHEOM to generate or load population
+    dynamics for training ML-based NISE. Each sample's Hamiltonian
     and population are stored on disk or generated on the fly.
 
     Each item yields:
       inputs: (H, T, E_reorg, tau, total_time, dt, psi0, n_sites)
       target: population array of shape (time_steps, n_sites)
 
-    The shape of H is (time_steps, n_sites, n_sites), 
+    The shape of H is (time_steps, n_sites, n_sites),
     and population is (time_steps, n_sites).
     """
+
     def __init__(
         self,
         length: int = 1000,
@@ -242,10 +314,16 @@ class MLNiseDrudeDataset(Dataset):
 
     def _check_files(self) -> bool:
         """Check if all required .npy files exist."""
-        return all(os.path.exists(f) for f in [
-            self.h_file, self.pop_file, self.temp_file,
-            self.reorg_file, self.tau_file
-        ])
+        return all(
+            os.path.exists(f)
+            for f in [
+                self.h_file,
+                self.pop_file,
+                self.temp_file,
+                self.reorg_file,
+                self.tau_file,
+            ]
+        )
 
     def _load_data(self) -> None:
         """Load dataset from existing .npy files."""
@@ -270,54 +348,136 @@ class MLNiseDrudeDataset(Dataset):
         Generate random Hamiltonians, run PyHEOM to obtain population dynamics,
         and store them in memory.
         """
-        import random
-        random.seed(self.seed)
-        np.random.seed(self.seed)
+        import multiprocessing
+        import time
 
         time_steps = int(self.total_time / self.dt_fs) + 1
         self.resultH = np.zeros(
-            (self.length,self.n_sites, self.n_sites),
-            dtype=np.float32
+            (self.length, self.n_sites, self.n_sites), dtype=np.float32
         )
         self.resultPop = np.zeros(
-            (self.length, time_steps, self.n_sites),
-            dtype=np.float32
+            (self.length, time_steps, self.n_sites), dtype=np.float32
         )
         self.resultTemp = np.zeros((self.length,), dtype=np.float32)
         self.resultEReorg = np.zeros((self.length,), dtype=np.float32)
         self.resultTau = np.zeros((self.length,), dtype=np.float32)
 
-        for idx in tqdm.tqdm(range(self.length)):
-            tau_sample = np.random.uniform(self.min_tau, self.max_tau)
-            temp_sample = np.random.uniform(self.min_temp, self.max_temp)
-            reorg_sample = np.random.uniform(self.min_reorg, self.max_reorg)
+        # Temp directory for samples
+        temp_dir = os.path.join(self.save_path, "temp_samples")
+        os.makedirs(temp_dir, exist_ok=True)
 
-            # Build a random Hamiltonian repeated across time steps
-            ham = self._build_random_hamiltonian()
+        # Prepare arguments
+        # Using manual Process management instead of Pool to ensure process isolation
+        max_workers = 8 # Limit concurrency
+        active_processes = [] # List of (Process, filename, idx)
+        
+        # Generator for tasks
+        task_indices = list(range(self.length))
+        
+        # Progress bar
+        pbar = tqdm.tqdm(total=self.length, desc="Generating samples")
+        
+        completed = 0
+        task_ptr = 0
+        
+        # Retry tracker
+        attempts = {} # idx -> num_failed_attempts
+        MAX_RETRIES = 20
 
-            # Run PyHEOM -> populations
-            population = runHeomDrude(
-                n_state=self.n_sites,
-                H=ham,
-                tau=tau_sample,
-                Temp=temp_sample,
-                E_reorg=reorg_sample,
-                dt__unit=self.dt_fs,
-                initiallyExcitedState=0,
-                totalTime=self.total_time,
-                tier=self.depth
-            )
+        while completed < self.length:
+            # Spawn new processes if slots available
+            while task_ptr < self.length and len(active_processes) < max_workers:
+                idx = task_indices[task_ptr]
+                sample_seed = self.seed + idx
+                filename = os.path.join(temp_dir, f"sample_{idx}.npz")
+                
+                args = (
+                    filename,
+                    sample_seed,
+                    self.n_sites,
+                    self.min_tau,
+                    self.max_tau,
+                    self.min_temp,
+                    self.max_temp,
+                    self.min_reorg,
+                    self.max_reorg,
+                    self.min_energy,
+                    self.max_energy,
+                    self.min_coupling,
+                    self.max_coupling,
+                    self.total_time,
+                    self.dt_fs,
+                    self.depth,
+                )
+                
+                p = multiprocessing.Process(target=_generate_and_save_sample, args=(args,))
+                p.start()
+                active_processes.append((p, filename, idx, args))
+                task_ptr += 1
+            
+            # Check for completed processes
+            still_active = []
+            for p, fname, idx, args in active_processes:
+                if p.is_alive():
+                    still_active.append((p, fname, idx, args))
+                else:
+                    p.join()
+                    if p.exitcode != 0:
+                        # Process failed
+                        fail_count = attempts.get(idx, 0) + 1
+                        attempts[idx] = fail_count
+                        
+                        if fail_count <= MAX_RETRIES:
+                            # Retry with different seed to avoid deterministic crash
+                            # print(f"Sample {idx} failed (exitcode {p.exitcode}). Retrying ({fail_count}/{MAX_RETRIES})...")
+                            # Perturb seed
+                            new_seed = sample_seed + fail_count * 100000
+                            new_args = list(args)
+                            new_args[1] = new_seed # Update seed in args tuple
+                            new_args = tuple(new_args)
+                            
+                            new_p = multiprocessing.Process(target=_generate_and_save_sample, args=(new_args,))
+                            new_p.start()
+                            still_active.append((new_p, fname, idx, new_args))
+                        else:
+                            raise RuntimeError(f"Worker for sample {idx} failed permanently (exitcode {p.exitcode}) after {MAX_RETRIES} retries.")
+                    else:
+                        # Success - Load data
+                        try:
+                            data = np.load(fname)
+                            self.resultH[idx] = data['ham']
+                            self.resultPop[idx] = data['pop']
+                            self.resultTemp[idx] = data['temp']
+                            self.resultEReorg[idx] = data['reorg']
+                            self.resultTau[idx] = data['tau']
+                            data.close()
+                            os.remove(fname) # Clean up
+                            completed += 1
+                            pbar.update(1)
+                        except Exception as e:
+                             if attempts.get(idx, 0) <= MAX_RETRIES:
+                                 # Retry loading fail too?
+                                 fail_count = attempts.get(idx, 0) + 1
+                                 attempts[idx] = fail_count
+                                 new_p = multiprocessing.Process(target=_generate_and_save_sample, args=(args,))
+                                 new_p.start()
+                                 still_active.append((new_p, fname, idx, args))
+                             else:
+                                 raise RuntimeError(f"Failed to load result for sample {idx}: {e}")
+            
+            active_processes = still_active
+            time.sleep(0.01) # Avoid busy wait
 
-            self.resultH[idx] = ham
-            self.resultPop[idx] = population
-            self.resultTemp[idx] = temp_sample
-            self.resultEReorg[idx] = reorg_sample
-            self.resultTau[idx] = tau_sample
+        pbar.close()
+        try:
+            os.rmdir(temp_dir)
+        except:
+            pass
 
     def _build_random_hamiltonian(self) -> np.ndarray:
         """
-        Create a symmetric random Hamiltonian with diagonal energies in 
-        [min_energy, max_energy] and off-diagonal couplings in 
+        Create a symmetric random Hamiltonian with diagonal energies in
+        [min_energy, max_energy] and off-diagonal couplings in
         [min_coupling, max_coupling]. Replicate for each time step.
 
         Returns:
@@ -335,8 +495,6 @@ class MLNiseDrudeDataset(Dataset):
                 coupling = np.random.uniform(self.min_coupling, self.max_coupling)
                 static_ham[i, j] = coupling
                 static_ham[j, i] = coupling
-
-
 
         return static_ham
 
@@ -364,13 +522,13 @@ class MLNiseDrudeDataset(Dataset):
         n_sites_torch = torch.tensor([self.n_sites], dtype=torch.int32)
 
         inputs = (
-            h_torch,      # (n_sites, n_sites)
-            T_torch,      # (1,)
+            h_torch,  # (n_sites, n_sites)
+            T_torch,  # (1,)
             reorg_torch,  # (1,)
-            tau_torch,    # (1,)
+            tau_torch,  # (1,)
             ttime_torch,  # (1,)
-            dt_torch,     # (1,)
-            psi0_torch,   # (n_sites,)
-            n_sites_torch
+            dt_torch,  # (1,)
+            psi0_torch,  # (n_sites,)
+            n_sites_torch,
         )
         return inputs, pop_torch
