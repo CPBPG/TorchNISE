@@ -533,9 +533,9 @@ def plot(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark TorchNISE vs NISE_2017")
     parser.add_argument("--propagation-type", choices=["matrix", "vector"], default="matrix", help="Propagation mode")
-    parser.add_argument("--realizations", type=int, nargs="+", default=[10000, 10000, 10000, 1000, 500, 500, 100, 50, 8, 4, 1, 1, 1, 1])
+    parser.add_argument("--realizations", type=int, nargs="+", default=[10000, 10000, 10000, 1000])
     parser.add_argument("--steps", type=int, default=100)
-    parser.add_argument("--sizes", type=int, nargs="+", default=[2,4,8,16,32,33,64,128,256,512,1024,2048,4096,8192])
+    parser.add_argument("--sizes", type=int, nargs="+", default=[2,4,8,16])
     parser.add_argument("--jobs", type=int, default=16, help="NISE 2017 Parallel Jobs")
     parser.add_argument("--no-save-nise-output", action="store_true")
     parser.add_argument("--neighbours", type=int, default=4)
