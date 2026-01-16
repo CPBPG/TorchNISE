@@ -9,6 +9,7 @@
 *.h5
 *.ffs_db
 *.png
+*.dat
 **/NISE_2017/
 **/NISE_Tutorials/
 **/pyheom_source/
