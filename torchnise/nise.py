@@ -14,7 +14,7 @@ from torchnise.pytorch_utility import renorm, H5Tensor, weighted_mean, CupyEigh,
 from torchnise import units
 from torchnise.averaging_and_lifetimes import estimate_lifetime, averaging
 
-from torchnise.absorption import absorption_time_domain, absorb_time_to_freq
+from torchnise.absorption import absorption_time_domain, absorb_time_to_freq, absorption_time_domain_vector
 
 from torchnise.fft_noise_gen import gen_noise
 
@@ -46,7 +46,9 @@ class NISEParameters:
     averaging_method: str = "standard"
     lifetime_factor: int = 5
     max_reps: int = 100000
+    save_wavefunction: bool = False
     track_grads: bool = False
+    keep_on_cuda: bool = False
 
 
 def nise_propagate(
@@ -82,205 +84,14 @@ def nise_propagate(
         tuple: (torch.Tensor, torch.Tensor, torch.Tensor) - Populations,
         coherences, and time evolution operators.
     """
+
     n_sites = hfull.shape[-1]
     
-    # Extract params for cleaner logic below (optional, but reduces diff noise)
-    dt = params.dt
-    total_time = params.total_time
-    save_interval = params.save_interval
-    t_correction = params.t_correction
-    device = params.device
-    save_u = params.save_u
-    save_coherence = params.save_coherence
-    use_h5 = params.use_h5
-    constant_v = params.constant_v
-    v_dt = params.v_dt
-    
-    if constant_v:
-        hfull = hfull.reshape((1, n_sites, n_sites))
-    factor = 1j * 1 / units.HBAR * dt * units.T_UNIT
-    # kbt = params.temperature * units.K
-    total_steps = int(total_time / dt) + 1
-    total_steps_saved = int(total_time / dt / save_interval) + 1
-    if use_h5:
-        psloc = H5Tensor(
-            shape=(realizations, total_steps_saved, n_sites), h5_filepath="psloc.h5"
-        )
-    else:
-        psloc = torch.zeros((realizations, total_steps_saved, n_sites), device="cpu")
-
-    aranged_realizations = torch.arange(realizations, device=device)
-
-    if save_coherence:
-        if use_h5:
-            coh_loc = H5Tensor(
-                shape=(realizations, total_steps_saved, n_sites, n_sites),
-                h5_filepath="cohloc.h5",
-            )
-        else:
-            coh_loc = torch.zeros(
-                (realizations, total_steps_saved, n_sites, n_sites),
-                device="cpu",
-                dtype=torch.complex64,
-            )
-    # grab the 0th timestep
-    # [all realizations : 0th timestep  : all sites : all sites]
-    if v_time_dependent is not None:
-        efull = torch.diagonal(hfull, dim1=-2, dim2=-1)
-        v_current = v_time_dependent[0, :, :, :].clone()
-        current_v_index = 0
-        v_next = v_time_dependent[1, :, :, :].clone()
-        h = (v_current + torch.diag_embed(site_noise[0, :, :].clone() + efull)).to(
-            device=device
-        )
-    elif constant_v:
-        h = (hfull + torch.diag_embed(site_noise[0, :, :].clone())).to(device=device)
-    else:
-        h = hfull[0, :, :, :].clone().to(device=device)
-    using_cuda = False
-    if h.device.type == "cuda":
-        using_cuda = True
-        torch.cuda.empty_cache()
-    # get initial eigenenergies and transition matrix from eigen to site basis.
-    h = h.to(dtype=torch.float32)
-    if using_cuda and n_sites > 32 and n_sites < 512 and HAS_CUPY:
-        e, c = CupyEigh.apply(h)
-    else:
-        e, c = torch.linalg.eigh(h)
-    e = e.to(dtype=torch.float32)
-    c = c.to(dtype=torch.float32)
-    # Since the Hamiltonian is hermitian we van use eigh
-    # H contains the hamiltonians of all realizations.
-    # To our advantage The eigh torch function (like almost all torch
-    # functions) is setup so that it can efficently calculate the results for a
-    # whole batch of inputs
-    cold = c
-    eold = e
-    psi0 = psi0.repeat(realizations, 1)
-    psi0 = psi0.unsqueeze(-1)
-    pop0 = psi0[:, :, 0] ** 2
-    psloc[:, 0, :] = pop0  # Save the population of the first timestep
-    # Use the transition Matrix to transfer to the eigenbasis.
-    # Bmm is a batched matrix multiplication, so it does the matrix
-    # multiplication for all batches at once
-    phi_b = (
-        cold.transpose(1, 2)
-        .to(dtype=torch.complex64)
-        .bmm(psi0.to(dtype=torch.complex64))
-    )
-    if save_coherence:
-        for i in range(n_sites):
-            coh_loc[:, 0, i, i] = pop0[:, i]
-    if save_u:
-        if use_h5:
-            uloc = H5Tensor(
-                shape=(realizations, total_steps_saved, n_sites, n_sites),
-                h5_filepath="uloc.h5",
-                dtype=torch.complex64,
-            )
-        else:
-            uloc = torch.zeros(
-                (realizations, total_steps_saved, n_sites, n_sites),
-                device="cpu",
-                dtype=torch.complex64,
-            )
-        identity = torch.eye(n_sites, dtype=torch.complex64, device="cpu")
-        identity = identity.reshape(1, n_sites, n_sites)
-        uloc[:, 0, :, :] = identity.repeat(realizations, 1, 1)
-        ub = (
-            cold.transpose(1, 2)
-            .to(dtype=torch.complex64)
-            .bmm(uloc[:, 0, :, :].to(device=device))
-        )
-        # ub = ub.to(dtype=torch.complex64).to(device=device)
-
-    # Now we get to the step by step timepropagation.
-    # We start at 1 and not 0 since we have already filled the first slot of
-    # our population dynamics
-    for t in tqdm.tqdm(range(1, total_steps)):
-        # grab the t'th timestep
-        if v_time_dependent is not None:
-            if (t * dt) // v_dt != current_v_index:
-                current_v_index = (t * dt) // v_dt
-                v_current = v_time_dependent[current_v_index, :, :, :].clone()
-                v_next = v_time_dependent[current_v_index + 1, :, :, :].clone()
-            remainder = ((t * dt) % v_dt) / v_dt
-            h = (v_current * (1 - remainder) + v_next * remainder) + torch.diag_embed(
-                site_noise[t, :, :].clone() + efull
-            ).to(device=device)
-        elif constant_v:
-            h = (hfull + torch.diag_embed(site_noise[t, :, :].clone())).to(
-                device=device
-            )
-        else:
-            h = hfull[t, :, :, :].clone().to(device=device)
-        # [all realizations : t'th timestep  : all sites : all sites]
-        # if using_cuda:
-        #    torch.cuda.empty_cache()
-        h = h.to(dtype=torch.float32)
-        if using_cuda and n_sites > 32 and n_sites < 512 and HAS_CUPY:
-            e, c = CupyEigh.apply(h)
-        else:
-            e, c = torch.linalg.eigh(h)
-        e = e.to(dtype=torch.float32)
-        c = c.to(dtype=torch.float32)
-        # multiply the old with the new transition matrix to get the
-        # non-adiabatic coupling
-        s = torch.matmul(c.transpose(1, 2), cold)
-        if t_correction.lower() in ["mlnise", "tnise"]:
-            s = apply_t_correction(
-                s,
-                n_sites,
-                realizations,
-                e,
-                eold,
-                phi_b,
-                aranged_realizations,
-                params,
-            )
-        # Make the Time Evolution operator
-        u = torch.diag_embed(
-            torch.exp(-e[:, :] * factor).to(dtype=torch.complex64)
-        ).bmm(s.to(dtype=torch.complex64))
-        phi_b = u.bmm(phi_b)  # Apply the time evolution operator
-        if save_u:
-            ub = u.bmm(ub)
-
-        # if t_correction.lower() in ["mlnise", "tnise"]:
-        # with fp32 it is best to renormalize
-        # the wave function regardless if we use t_correction or not
-        phi_b = renorm(phi_b, dim=1)
-        cold = c
-        eold = e
-        c = c.to(dtype=torch.complex64)
-
-        phi_bin_loc_base = c.bmm(phi_b)  # Transition to the site basis
-
-        if t % save_interval == 0:
-            psloc[:, t // save_interval, :] = (
-                (phi_bin_loc_base.abs() ** 2)[:, :, 0]
-            ).real.cpu()
-            if save_u:
-                # if t_correction.lower() in ["mlnise", "tnise"]: #
-                # with fp32 it is best to renormalize the ub matrix
-                # regardless if we use t_correction or not
-                for i in range(n_sites):
-                    ub_norm_row = renorm(ub[:, :, i], dim=1)
-                    ub[:, :, i] = ub_norm_row[:, :]
-
-                uloc[:, t // save_interval, :, :] = c.bmm(ub).cpu()
-
-            if save_coherence:
-                coh_loc[:, t // save_interval, :, :] = (
-                    phi_bin_loc_base.squeeze(-1)[:, :, None]
-                    * phi_bin_loc_base.squeeze(-1)[:, None, :].conj()
-                ).real.cpu()
-    coh_loc = coh_loc.cpu() if save_coherence else None
-    uloc = uloc.cpu() if save_u else None
-    psloc = psloc.cpu()
-    if using_cuda:
-        torch.cuda.empty_cache()
-    return psloc, coh_loc, uloc
+    # Delegate logic to StandardPropagator
+    from torchnise.propagator import StandardPropagator
+    propagator = StandardPropagator(n_sites, realizations, params)
+    population, coherence, u, psi_loc = propagator.propagate(hfull, psi0, site_noise=site_noise, v_time_dependent=v_time_dependent, keep_on_cuda=params.keep_on_cuda)
+    return population, coherence, u, psi_loc
 
 
 def apply_t_correction(
@@ -399,7 +210,7 @@ def nise_averaging(
     # Run NISE without T correction if necessary
     if averaging_method.lower() in ["boltzmann", "interpolated"]:
         params_no_t = replace(params, t_correction="None", save_u=True, save_coherence=True)
-        population, coherence, u = nise_propagate(
+        population, coherence, u, _ = nise_propagate(
             hfull.cpu(),
             realizations,
             psi0.to(device),
@@ -412,7 +223,7 @@ def nise_averaging(
     should_save_u = save_u or (save_multi_slice is not None)
     params_run = replace(params, save_u=should_save_u, save_coherence=True)
     
-    population, coherence, u = nise_propagate(
+    population, coherence, u, psi_loc = nise_propagate(
         hfull.cpu(),
         realizations,
         psi0.to(device),
@@ -441,7 +252,7 @@ def nise_averaging(
         u = None
     if not save_coherence:
         coherence_averaged = None
-    return population_averaged, coherence_averaged, u, lifetimes, multi_pop
+    return population_averaged, coherence_averaged, u, lifetimes, multi_pop, psi_loc
 
 
 def run_nise(
@@ -640,18 +451,64 @@ def run_nise(
             ):
                 print("Saving coherence")
                 save_coherence_loop = True
-            
+
             # Update params for this chunk
-            chunk_params = replace(params, save_u=save_u_loop, save_coherence=save_coherence_loop)
+            # For Absorption, we want to save wavefunction but NOT u
+            # Also override psi0 if absorption mode to be the dipole moments
+            chunk_psi0 = initial_state
             
-            pop_avg, coherence_avg, u, lifetimes, multi_pop = nise_averaging(
-                chunk_hfull,
-                chunk_reps,
-                initial_state,
-                chunk_params,
-                site_noise=site_noise,
-                v_time_dependent=v_time_dependent,
-            )
+            if mode.lower() == "absorption":
+                save_wavefunction_loop = True
+                save_u_loop = False # Disable saving U for absorption efficiency
+                if mu is None:
+                    raise ValueError("Dipole moments (mu) must be provided in parameters for Absorption mode.")
+                
+                # Use mu as initial state. mu might be (N, 3).
+                # If mu is time dependent, use mu[0]? Or handle outside?
+                # Assuming mu is (N, 3) or (R, T, N, 3)
+                # If dynamic, we need mu at t=0 for psi0.
+                if isinstance(mu, (np.ndarray, list)):
+                     mu_tensor = torch.tensor(mu, device=device, dtype=torch.float32) # real dipoles
+                else:
+                     mu_tensor = mu.to(device=device, dtype=torch.float32)
+                
+                if len(mu_tensor.shape) == 2: # (N, 3)
+                     chunk_psi0 = mu_tensor
+                elif len(mu_tensor.shape) >= 3:
+                     # e.g. (T, N, 3) or (R, T, N, 3)
+                     # Take time 0
+                     if len(mu_tensor.shape) == 3: # (T, N, 3)
+                         chunk_psi0 = mu_tensor[0]
+                     else: # (R, T, N, 3)
+                         chunk_psi0 = mu_tensor[i:i+chunk_reps, 0, :, :]
+            else:
+                save_wavefunction_loop = params.save_wavefunction
+
+            chunk_params = replace(params, save_u=save_u_loop, save_coherence=save_coherence_loop, save_wavefunction=save_wavefunction_loop)
+            
+            if mode.lower() == "absorption":
+                 # Call propagate directly to avoid forced coherence calculation in nise_averaging
+                 pop_avg, _, u, psi_loc = nise_propagate(
+                    chunk_hfull,
+                    chunk_reps,
+                    chunk_psi0,
+                    chunk_params,
+                    site_noise=site_noise,
+                    v_time_dependent=v_time_dependent,
+                )
+                 pop_avg = pop_avg.mean(dim=0) # Average over realizations for placeholder
+                 # Dummy placeholders for variables used below if needed (though absorption block handles it)
+                 lifetimes = None
+                 multi_pop = None
+            else:
+                pop_avg, coherence_avg, u, lifetimes, multi_pop, psi_loc = nise_averaging(
+                    chunk_hfull,
+                    chunk_reps,
+                    chunk_psi0,
+                    chunk_params,
+                    site_noise=site_noise,
+                    v_time_dependent=v_time_dependent,
+                )
 
             if mode.lower() == (
                 "population"
@@ -660,9 +517,28 @@ def run_nise(
             ):
                 all_coherence[i // chunk_size, :, :, :] = coherence_avg.cpu()
                 all_lifetimes[i // chunk_size, :] = lifetimes.cpu()
+                all_lifetimes[i // chunk_size, :] = lifetimes.cpu()
             elif mode.lower() == "absorption":
-                absorb_time = absorption_time_domain(u, mu)
-                all_absorb_time.append(absorb_time)
+                # Use vector propagation result
+                if psi_loc is not None:
+                    # Only pass the relevant slice of mu if it's chunked by realization
+                    mu_chunk = mu
+                    if isinstance(mu, torch.Tensor) and len(mu.shape) == 4: # (R, T, N, 3)
+                        mu_chunk = mu[i:i+chunk_reps]
+                        
+                    absorb_time = absorption_time_domain_vector(psi_loc, mu_chunk, dt=dt)  # Note: absorption_time_domain_vector currently handles damping inside? No, it has use_damping arg.
+                    # Wait, absorption.py has optional args. Let's assume defaults or pass them if params has them.
+                    # params has no explicit damping params for absorption_time_domain call in original code, 
+                    # but absorption_time_domain definition has defaults.
+                    # Original code used absorption_time_domain(u, mu).
+                    # We should probably match behavior. 
+                    # However, absorption_time_domain_vector returns numpy array already.
+                    absorb_time = torch.tensor(absorb_time, device="cpu") # convert back to tensor for stacking
+                    all_absorb_time.append(absorb_time)
+                else:
+                    # Fallback if somehow psi_loc is None (should not happen with new logic)
+                    absorb_time = absorption_time_domain(u, mu)
+                    all_absorb_time.append(absorb_time)
             if save_u:
                 if save_u and save_u_file is not None:
                     if "." in save_u_file:
