@@ -1,6 +1,7 @@
 """
 This file contains some utility functions
 """
+
 import os
 import uuid
 import weakref
@@ -11,25 +12,33 @@ import numpy as np
 import torch
 import h5py
 from torch.utils import dlpack
-import cupy as cp
+
+try:
+    import cupy as cp
+
+    HAS_CUPY = True
+except ImportError:
+    cp = None
+    HAS_CUPY = False
 
 numpy_to_torch_dtype_dict = {
-        np.bool_       : torch.bool,
-        np.uint8      : torch.uint8,
-        np.int8       : torch.int8,
-        np.int16      : torch.int16,
-        np.int32      : torch.int32,
-        np.int64      : torch.int64,
-        np.float16    : torch.float16,
-        np.float32    : torch.float32,
-        np.float64    : torch.float64,
-        np.complex64  : torch.complex64,
-        np.complex128 : torch.complex128
-    }
+    np.bool_: torch.bool,
+    np.uint8: torch.uint8,
+    np.int8: torch.int8,
+    np.int16: torch.int16,
+    np.int32: torch.int32,
+    np.int64: torch.int64,
+    np.float16: torch.float16,
+    np.float32: torch.float32,
+    np.float64: torch.float64,
+    np.complex64: torch.complex64,
+    np.complex128: torch.complex128,
+}
 
-    # Dict of torch dtype -> NumPy dtype
-torch_to_numpy_dtype_dict = {value : key for (key, value) in numpy_to_torch_dtype_dict.items()}
-
+# Dict of torch dtype -> NumPy dtype
+torch_to_numpy_dtype_dict = {
+    value: key for (key, value) in numpy_to_torch_dtype_dict.items()
+}
 
 
 # Utility Functions
@@ -53,30 +62,34 @@ def renorm(phi: torch.Tensor, eps: float = 1e-8, dim: int = -1) -> torch.Tensor:
 
     # Safe sqrt with masking
     sqrt_inner_product = torch.sqrt(inner_product.real)
-    sqrt_inner_product = torch.where(mask, sqrt_inner_product, torch.ones_like(sqrt_inner_product))
+    sqrt_inner_product = torch.where(
+        mask, sqrt_inner_product, torch.ones_like(sqrt_inner_product)
+    )
 
     # Renormalize phi
     phi_new = phi / sqrt_inner_product
     return phi_new
 
+
 def free_vram(device=0):
     """
     Returns the free memory in bytes of the specified GPU device.
     Args:
-        device (int or string): The index of the GPU device or 
+        device (int or string): The index of the GPU device or
                                 "cuda" to get the Default "cuda device".
                                 Default is 0.
     Returns:
         int: Free memory in bytes.
     """
-    total    = torch.cuda.get_device_properties(device).total_memory
+    total = torch.cuda.get_device_properties(device).total_memory
     reserved = torch.cuda.memory_reserved(device)
-    allocated= torch.cuda.memory_allocated(device)
+    allocated = torch.cuda.memory_allocated(device)
     return total - (reserved + allocated)
+
 
 def tensor_bytes(shape, dtype):
     """
-    Calculate the number of bytes required to store a tensor with 
+    Calculate the number of bytes required to store a tensor with
     the given shape and dtype.
     Args:
         shape (tuple): Shape of the tensor.
@@ -102,7 +115,7 @@ def weighted_mean(tensor: torch.Tensor, weights: torch.Tensor, dim=0) -> torch.T
         torch.Tensor: Weighted average along dimension 'dim'.
     """
     # Ensure weights is float and on the same device
-    weights = torch.tensor(weights,dtype=tensor.dtype, device=tensor.device)
+    weights = torch.tensor(weights, dtype=tensor.dtype, device=tensor.device)
 
     # Sum of all weights
     w_sum = weights.sum()
@@ -110,7 +123,7 @@ def weighted_mean(tensor: torch.Tensor, weights: torch.Tensor, dim=0) -> torch.T
     # Reshape weights to broadcast along the specified dimension
     # For instance, if dim=0 and weights.size= (N,),
     # we reshape weights to (N, 1, 1, ...)
-    shape = [1]*tensor.ndim
+    shape = [1] * tensor.ndim
     shape[dim] = -1  # place weights along 'dim'
     w_view = weights.reshape(*shape)
 
@@ -119,10 +132,11 @@ def weighted_mean(tensor: torch.Tensor, weights: torch.Tensor, dim=0) -> torch.T
     return weighted_sum / w_sum
 
 
-def matrix_logh(A: torch.Tensor, dim1: int = -1, dim2: int = -2,
-                epsilon: float = 1e-5) -> torch.Tensor:
+def matrix_logh(
+    A: torch.Tensor, dim1: int = -1, dim2: int = -2, epsilon: float = 1e-5
+) -> torch.Tensor:
     """
-    Compute the Hermitian matrix logarithm of a square matrix or a batch of 
+    Compute the Hermitian matrix logarithm of a square matrix or a batch of
     square matrices.It is the unique hermitian matrix logarithm see
     math.stackexchange.com/questions/4474139/logarithm-of-a-positive-definite-matrix
 
@@ -143,27 +157,32 @@ def matrix_logh(A: torch.Tensor, dim1: int = -1, dim2: int = -2,
     if dim1 == dim2:
         raise ValueError("dim1 and dim2 cannot be the same for batch trace")
     if A.shape[dim1] != A.shape[dim2]:
-        raise ValueError(f"The input tensor must have square "
-                         "matrices in the specified dimensions. "
-                         f"Dimension {dim1} has size {A.shape[dim1]} and "
-                         f"dimension {dim2} has size {A.shape[dim2]}.")
+        raise ValueError(
+            f"The input tensor must have square "
+            "matrices in the specified dimensions. "
+            f"Dimension {dim1} has size {A.shape[dim1]} and "
+            f"dimension {dim2} has size {A.shape[dim2]}."
+        )
 
     if dim1 != -1 or dim2 != -2:
         A = A.transpose(dim1, -1).transpose(dim2, -2)
 
     n = A.shape[-1]
-    identity = torch.eye(n, dtype=A.dtype,
-                         device=A.device).view(*([1] * (A.dim() - 2)), n, n)
+    identity = torch.eye(n, dtype=A.dtype, device=A.device).view(
+        *([1] * (A.dim() - 2)), n, n
+    )
     A = A + epsilon * identity
 
     e, v = torch.linalg.eigh(A)
     e = e.to(dtype=v.dtype)
-    log_A = torch.matmul(torch.matmul(v,
-                torch.diag_embed(torch.log(e))), v.conj().transpose(-2, -1))
+    log_A = torch.matmul(
+        torch.matmul(v, torch.diag_embed(torch.log(e))), v.conj().transpose(-2, -1)
+    )
 
     return log_A
 
-#thx https://discuss.pytorch.org/t/how-to-calculate-matrix-trace-in-3d-tensor/132435
+
+# thx https://discuss.pytorch.org/t/how-to-calculate-matrix-trace-in-3d-tensor/132435
 def batch_trace(A: torch.Tensor, dim1: int = -1, dim2: int = -2) -> torch.Tensor:
     """
     Compute the batch trace of a tensor along specified dimensions.
@@ -182,12 +201,15 @@ def batch_trace(A: torch.Tensor, dim1: int = -1, dim2: int = -2) -> torch.Tensor
     if dim1 == dim2:
         raise ValueError("dim1 and dim2 cannot be the same for batch trace")
     if A.shape[dim1] != A.shape[dim2]:
-        raise ValueError(f"The tensor does not have the same dimension on the "
-                         "trace dimensions. "
-                         f"Dimension {dim1} has size {A.shape[dim1]} and "
-                         f"dimension {dim2} has size {A.shape[dim2]}.")
+        raise ValueError(
+            f"The tensor does not have the same dimension on the "
+            "trace dimensions. "
+            f"Dimension {dim1} has size {A.shape[dim1]} and "
+            f"dimension {dim2} has size {A.shape[dim2]}."
+        )
 
     return torch.diagonal(A, offset=0, dim1=dim1, dim2=dim2).sum(dim=-1)
+
 
 def tensor_to_mmap(tensor) -> torch.Tensor:
     """
@@ -196,7 +218,7 @@ def tensor_to_mmap(tensor) -> torch.Tensor:
     This function handles the creation of memory-mapped tensors, ensuring that the
     data is efficiently managed and temporary files are cleaned up properly.
     The mmaped tensors are always on cpu.
-    
+
     Args:
         tensor (torch.Tensor): Input tensor.
 
@@ -206,13 +228,12 @@ def tensor_to_mmap(tensor) -> torch.Tensor:
     if is_memory_mapped(tensor):
         return tensor
 
-
     # Create a tensor using the storage
     mmap_tensor = create_empty_mmap_tensor(shape=tensor.shape, dtype=tensor.dtype)
     mmap_tensor.copy_(tensor)
 
-
     return mmap_tensor
+
 
 def create_empty_mmap_tensor(shape, dtype=torch.float32) -> torch.Tensor:
     """
@@ -221,7 +242,7 @@ def create_empty_mmap_tensor(shape, dtype=torch.float32) -> torch.Tensor:
     This function handles the creation of memory-mapped tensors, ensuring that the
     data is efficiently managed and temporary files are cleaned up properly.
     The mmaped tensors are always on cpu.
-    
+
     Args:
         tensor (torch.Tensor): Input tensor.
 
@@ -229,25 +250,26 @@ def create_empty_mmap_tensor(shape, dtype=torch.float32) -> torch.Tensor:
         torch.Tensor: Memory-mapped tensor.
     """
 
-
     # Generate a unique filename in a temporary directory
     temp_dir = tempfile.gettempdir()
-    filename = os.path.join(temp_dir, f'{uuid.uuid4().hex}.bin')
+    filename = os.path.join(temp_dir, f"{uuid.uuid4().hex}.bin")
 
     # Calculate the number of bytes needed
-    nbytes= torch.Size(shape).numel() * torch.tensor([], dtype=dtype).element_size()
+    nbytes = torch.Size(shape).numel() * torch.tensor([], dtype=dtype).element_size()
 
     # Create untyped storage from the file
-    storage = torch.storage.UntypedStorage.from_file(filename, shared=True,
-                                                     nbytes=nbytes)
+    storage = torch.storage.UntypedStorage.from_file(
+        filename, shared=True, nbytes=nbytes
+    )
 
     # Create a tensor using the storage
-    mmap_tensor = torch.tensor(storage,dtype=dtype, device="cpu").view(shape)
+    mmap_tensor = torch.tensor(storage, dtype=dtype, device="cpu").view(shape)
 
     # Setup to automatically cleanup the file when the tensor is garbage collected
     weakref.finalize(mmap_tensor, delete_file, filename)
 
     return mmap_tensor
+
 
 def delete_file(filename: str) -> None:
     """
@@ -278,28 +300,31 @@ def is_memory_mapped(tensor) -> bool:
         bool: True if the tensor is memory-mapped, False otherwise.
 
     Raises:
-        Warning: If the tensor's storage does not have a filename attribute, 
-            (usually because pytorch version is less than 2.2) it can not be 
-            determined if the tensor is memory mapped. It is assumed that it 
+        Warning: If the tensor's storage does not have a filename attribute,
+            (usually because pytorch version is less than 2.2) it can not be
+            determined if the tensor is memory mapped. It is assumed that it
             is not.
     """
     storage = tensor.untyped_storage()
-    if not hasattr(storage, 'filename'):
-        warnings.warn("The tensor's storage does not have a filename attribute."
-                      " Can't determine if the tensor is Memory mapped assuming"
-                      " it is not.")
+    if not hasattr(storage, "filename"):
+        warnings.warn(
+            "The tensor's storage does not have a filename attribute."
+            " Can't determine if the tensor is Memory mapped assuming"
+            " it is not."
+        )
         return False
     return storage.filename is not None
+
 
 def clean_temp_files():
     """
     Remove all temporary .bin files.
     """
-    temp_files = glob.glob(os.path.join(tempfile.gettempdir(), '*.bin'))
+    temp_files = glob.glob(os.path.join(tempfile.gettempdir(), "*.bin"))
     print("Deleting temporary files:", temp_files)
     for file in temp_files:
-        os.remove(file
-    )
+        os.remove(file)
+
 
 def golden_section_search(func, a, b, tol):
     """
@@ -317,7 +342,7 @@ def golden_section_search(func, a, b, tol):
         float: The point at which the function has its minimum within the
         interval [a, b].
     """
-    golden_ratio = (1 + 5 ** 0.5) / 2
+    golden_ratio = (1 + 5**0.5) / 2
 
     c = b - (b - a) / golden_ratio
     d = a + (b - a) / golden_ratio
@@ -332,6 +357,7 @@ def golden_section_search(func, a, b, tol):
         d = a + (b - a) / golden_ratio
 
     return (b + a) / 2
+
 
 def smooth_damp_to_zero(f_init, start, end):
     """
@@ -355,31 +381,37 @@ def smooth_damp_to_zero(f_init, start, end):
         return x
 
     damprange = np.arange(end - start, dtype=float)[::-1] / (end - start)
-    f[start:end] = (f[start:end] * expdamp_helper(damprange) /
-                    (expdamp_helper(damprange) + expdamp_helper(1 - damprange)))
+    f[start:end] = (
+        f[start:end]
+        * expdamp_helper(damprange)
+        / (expdamp_helper(damprange) + expdamp_helper(1 - damprange))
+    )
     return f
 
 
 class CupyEigh(torch.autograd.Function):
-    eps = 1.0e-12              # safety for repeated eigenvalues
+    eps = 1.0e-12  # safety for repeated eigenvalues
 
     # -------- forward --------
     @staticmethod
     def forward(ctx, A_torch):
-        """
-        A_torch  (B,N,N, float32|float64, CUDA or CPU)
-                 *need not* be exactly symmetric – we enforce it here
-        returns   eigenvalues (B,N)   and eigenvectors (B,N,N)
-        """
-        # 1. force symmetry once – this keeps gradcheck happy
+        # ... (Force symmetry logic is fine) ...
         A_sym = 0.5 * (A_torch + A_torch.transpose(-2, -1))
 
-        # 2. CuPy view and eigh
-        vals_cp, vecs_cp = cp.linalg.eigh(cp.asarray(A_sym))
+        if not HAS_CUPY:
+             raise ImportError("Cupy is not installed.")
 
-        # 3. zero-copy back to Torch
-        vals_t = dlpack.from_dlpack(vals_cp.toDlpack())
-        vecs_t = dlpack.from_dlpack(vecs_cp.toDlpack())
+        # 1. Convert to CuPy (Zero-Copy)
+        # Note: Use from_dlpack here too for best practice, though as_tensor works
+        A_cp = cp.from_dlpack(torch.utils.dlpack.to_dlpack(A_sym)) 
+        
+        # 2. Compute Eigh
+        vals_cp, vecs_cp = cp.linalg.eigh(A_cp)
+
+        # 3. Convert back to Torch (Zero-Copy) -- THE FIX
+        # Pass the CuPy array directly. Do not call .toDlpack()
+        vals_t = torch.utils.dlpack.from_dlpack(vals_cp)
+        vecs_t = torch.utils.dlpack.from_dlpack(vecs_cp)
 
         ctx.save_for_backward(vals_t, vecs_t)
         return vals_t, vecs_t
@@ -387,15 +419,15 @@ class CupyEigh(torch.autograd.Function):
     # -------- backward --------
     @staticmethod
     def backward(ctx, g_vals, g_vecs):
-        vals, vecs = ctx.saved_tensors          # (B,N) , (B,N,N)
-        B, N       = vals.shape
-        eye        = torch.eye(N, dtype=vals.dtype, device=vals.device)
+        vals, vecs = ctx.saved_tensors  # (B,N) , (B,N,N)
+        B, N = vals.shape
+        eye = torch.eye(N, dtype=vals.dtype, device=vals.device)
 
         # build F_ij = 1/(λ_i-λ_j) with safe diagonal
-        lam_i  = vals.unsqueeze(-1)             # (B,N,1)
-        lam_j  = vals.unsqueeze(-2)             # (B,1,N)
-        diff   = lam_i - lam_j
-        inv    = (diff + CupyEigh.eps * eye).reciprocal()
+        lam_i = vals.unsqueeze(-1)  # (B,N,1)
+        lam_j = vals.unsqueeze(-2)  # (B,1,N)
+        diff = lam_i - lam_j
+        inv = (diff + CupyEigh.eps * eye).reciprocal()
         inv.diagonal(dim1=-2, dim2=-1).zero_()  # force F_ii = 0
 
         # M = Qᵀ (∂L/∂Q)
@@ -407,27 +439,34 @@ class CupyEigh(torch.autograd.Function):
 
         # inner bracket  S = diag(g_vals) + sym( F ⊙ (M − Mᵀ) )
         diag_term = g_vals.unsqueeze(-1) * eye
-        skew_M    = M - M.transpose(-2, -1)
-        S         = diag_term + 0.5 * (inv * skew_M)
+        skew_M = M - M.transpose(-2, -1)
+        S = diag_term + 0.5 * (inv * skew_M)
 
-        grad_A = vecs @ S @ vecs.transpose(-2, -1)      # (B,N,N)
+        grad_A = vecs @ S @ vecs.transpose(-2, -1)  # (B,N,N)
 
         # input tensor count == 1  →  return a 1-tuple
         return (grad_A,)
-    
-    
+
+
 class H5Tensor:
     """
     A class for handling PyTorch tensors stored in HDF5 files.
 
     This class provides a way to work with large tensors that do not fit into memory.
-    
+
     """
-    def __init__(self, data=None, h5_filepath=None, requires_grad=False,
-                 dtype=torch.float,shape=None):
+
+    def __init__(
+        self,
+        data=None,
+        h5_filepath=None,
+        requires_grad=False,
+        dtype=torch.float,
+        shape=None,
+    ):
         """
         Flexible constructor for H5Tensor.
-        
+
         Args:
             data: Can be one of the following:
                 - A list, NumPy array, or PyTorch tensor for direct initialization.
@@ -440,10 +479,9 @@ class H5Tensor:
         """
         self.device = "cpu"
         self.requires_grad = requires_grad
-        self.dtype=dtype
+        self.dtype = dtype
         self.h5_filepath = h5_filepath
-        self.shape=shape
-
+        self.shape = shape
 
         if isinstance(data, H5Tensor):
             # Copy constructor for H5Tensor
@@ -451,65 +489,82 @@ class H5Tensor:
             self._save_to_hdf5(data)
 
         elif isinstance(data, (list, np.ndarray, torch.Tensor)):
-            # Initialize from tensor-like data (list, NumPy array, PyTorch tensor)        
+            # Initialize from tensor-like data (list, NumPy array, PyTorch tensor)
             # Save data to HDF5
             if isinstance(data, (list, np.ndarray)):
-                data=torch.tensor(data,requires_grad=self.requires_grad,dtype=self.dtype)
+                data = torch.tensor(
+                    data, requires_grad=self.requires_grad, dtype=self.dtype
+                )
             else:
-                self.requires_grad=data.requires_grad
-                self.dtype=data.dtype
-            self.shape=data.shape  
+                self.requires_grad = data.requires_grad
+                self.dtype = data.dtype
+            self.shape = data.shape
             self._save_to_hdf5(data)
         elif shape is not None:
             self._save_to_hdf5(data=None)
         elif os.path.exists(h5_filepath):
             # Load data from HDF5 file
-            with h5py.File(self.h5_filepath, 'r') as f:
+            with h5py.File(self.h5_filepath, "r") as f:
                 if "data" in f:
                     self.shape = f["data"].shape
                 if "grad" in f:
-                    self.requires_grad=True
+                    self.requires_grad = True
         else:
-            raise ValueError("""Invalid constructor arguments. Must provide either an HDF5
-                              file with dataset, an H5Tensor, or tensor-like data.""")
+            raise ValueError(
+                """Invalid constructor arguments. Must provide either an HDF5
+                              file with dataset, an H5Tensor, or tensor-like data."""
+            )
 
     def _save_to_hdf5(self, data):
-        """Helper method to save data to HDF5 file.""" 
+        """Helper method to save data to HDF5 file."""
         if not self.h5_filepath:
             raise ValueError("No HDF5 file path provided to save data.")
 
-        with h5py.File(self.h5_filepath, 'w') as f:
+        with h5py.File(self.h5_filepath, "w") as f:
             if data is not None:
                 # Save provided data to HDF5
                 f.create_dataset("data", data=data.cpu().detach().numpy())
             else:
                 if self.dtype.is_complex:
-                    f.create_dataset("data", shape=self.shape,
-                                     dtype=torch_to_numpy_dtype_dict[self.dtype],
-                                     fillvalue=0+0j)
+                    f.create_dataset(
+                        "data",
+                        shape=self.shape,
+                        dtype=torch_to_numpy_dtype_dict[self.dtype],
+                        fillvalue=0 + 0j,
+                    )
                 else:
-                    f.create_dataset("data", shape=self.shape,
-                                     dtype=torch_to_numpy_dtype_dict[self.dtype],
-                                     fillvalue=0)
+                    f.create_dataset(
+                        "data",
+                        shape=self.shape,
+                        dtype=torch_to_numpy_dtype_dict[self.dtype],
+                        fillvalue=0,
+                    )
             if self.requires_grad:
                 if data.grad is not None:
                     f.create_dataset("grad", data=data.grad.cpu().detach().numpy())
                 else:
                     if self.dtype.is_complex:
-                        f.create_dataset("grad", shape=self.shape,
-                                         dtype=torch_to_numpy_dtype_dict[self.dtype],
-                                         fillvalue=0+0j)
+                        f.create_dataset(
+                            "grad",
+                            shape=self.shape,
+                            dtype=torch_to_numpy_dtype_dict[self.dtype],
+                            fillvalue=0 + 0j,
+                        )
                     else:
-                        f.create_dataset("grad", shape=self.shape,
-                                         dtype=torch_to_numpy_dtype_dict[self.dtype],
-                                         fillvalue=0)
+                        f.create_dataset(
+                            "grad",
+                            shape=self.shape,
+                            dtype=torch_to_numpy_dtype_dict[self.dtype],
+                            fillvalue=0,
+                        )
+
     def __setitem__(self, index, value):
         """Set a slice of the data in HDF5."""
 
-        with h5py.File(self.h5_filepath, 'a') as f: # Open HDF5 file in append mode
-                                                    # to allow modifications
+        with h5py.File(self.h5_filepath, "a") as f:  # Open HDF5 file in append mode
+            # to allow modifications
             if isinstance(value, H5Tensor):
-                value=value.to_tensor()
+                value = value.to_tensor()
             if isinstance(value, torch.Tensor):
                 # Write the new data to the HDF5 file
                 f["data"][index] = value.to(self.dtype).cpu().detach().numpy()
@@ -517,11 +572,14 @@ class H5Tensor:
                     f["grad"][index] = value.grad.to(self.dtype).cpu().detach().numpy()
             else:
                 # Write the new data to the HDF5 file
-                f["data"][index] = np.array(value,
-                                            dtype=torch_to_numpy_dtype_dict[self.dtype])
-
+                f["data"][index] = np.array(
+                    value, dtype=torch_to_numpy_dtype_dict[self.dtype]
+                )
 
     def __torch_function__(self, func, types, args=(), kwargs=None):
+        # types is required by signature but unused
+        del types
+
         if kwargs is None:
             kwargs = {}
 
@@ -544,28 +602,34 @@ class H5Tensor:
         # If the method is called (e.g., h5tensor.reshape), it will load the
         # full tensor and apply the corresponding method.
         if hasattr(torch.Tensor, name):
-            tensor = self.to_tensor()  # Load data from HDF5 and convert to a PyTorch tensor
+            tensor = (
+                self.to_tensor()
+            )  # Load data from HDF5 and convert to a PyTorch tensor
             attr = getattr(tensor, name)
 
             # If it's callable (a method like .reshape()), return a function that applies it
             if callable(attr):
                 def method_wrapper(*args, **kwargs):
                     return attr(*args, **kwargs)
+
                 return method_wrapper
-            else:
-                # Otherwise, return the attribute directly (like .shape)
-                return attr
+            
+            # Otherwise, return the attribute directly (like .shape)
+            return attr
         else:
             raise AttributeError(f"'H5Tensor' object has no attribute '{name}'")
 
     def __getitem__(self, index):
-        with h5py.File(self.h5_filepath, 'r') as f:
-            data_slice = torch.tensor(f["data"][index], device=self.device,dtype=self.dtype
-                                      ,requires_grad=self.requires_grad)
+        with h5py.File(self.h5_filepath, "r") as f:
+            data_slice = torch.tensor(
+                f["data"][index],
+                device=self.device,
+                dtype=self.dtype,
+                requires_grad=self.requires_grad,
+            )
             if self.requires_grad:
-                data_slice.grad= torch.tensor(f["grad"][index],dtype=self.dtype)
+                data_slice.grad = torch.tensor(f["grad"][index], dtype=self.dtype)
         return data_slice
-
 
     def to_tensor(self):
         """
@@ -574,32 +638,37 @@ class H5Tensor:
         """
 
         # Load entire dataset from HDF5 file
-        with h5py.File(self.h5_filepath, 'r') as f:
-            data = torch.tensor(f["data"][:], device=self.device,dtype=self.dtype,
-                                requires_grad=self.requires_grad)
+        with h5py.File(self.h5_filepath, "r") as f:
+            data = torch.tensor(
+                f["data"][:],
+                device=self.device,
+                dtype=self.dtype,
+                requires_grad=self.requires_grad,
+            )
             if self.requires_grad:
-                data.grad= torch.tensor(f["grad"][:],dtype=self.dtype)
+                data.grad = torch.tensor(f["grad"][:], dtype=self.dtype)
         return data
-
 
     def __len__(self):
         return self.shape[0]
 
     def to(self, device):
-        if not device=="cpu":
-            warnings.warn("H5Tensor can only be on CPU. Using .to_tensor().to{device} " \
-                          "to load data into memory of specified device as a regular"
-                          "torch.tensor.")
+        if not device == "cpu":
+            warnings.warn(
+                "H5Tensor can only be on CPU. Using .to_tensor().to{device} "
+                "to load data into memory of specified device as a regular"
+                "torch.tensor."
+            )
             return self.to_tensor().to(device)
-        else:    
-            return self
+        
+        return self
 
     def __repr__(self):
         if self.h5_filepath:
             return f"""H5Tensor(HDF5 file: {self.h5_filepath}, dataset: {self.dataset_name},
             shape={self.shape}, device={self.device}, requires_grad={self.requires_grad})"""
-        else:
-            return f"""H5Tensor(shape={self.shape}, device={self.device},
+        
+        return f"""H5Tensor(shape={self.shape}, device={self.device},
             requires_grad={self.requires_grad})"""
 
     # Implementing operators
@@ -618,7 +687,7 @@ class H5Tensor:
             other = other.to_tensor()
         tensor = self.to_tensor()
         tensor = torch_op(tensor, other)
-        with h5py.File(self.h5_filepath, 'a') as f:
+        with h5py.File(self.h5_filepath, "a") as f:
             # Write the modified data back to the HDF5 file
             f["data"][:] = tensor.cpu().detach().numpy()
 
@@ -628,7 +697,7 @@ class H5Tensor:
         return self
 
     # Overriding binary operators
-# Binary Arithmetic Operations
+    # Binary Arithmetic Operations
     def __add__(self, other):
         return self._apply_op(torch.add, other)
 

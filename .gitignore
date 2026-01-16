@@ -8,7 +8,15 @@
 .vscode/
 *.h5
 *.ffs_db
-
+*.png
+**/NISE_2017/
+**/NISE_Tutorials/
+**/pyheom_source/
+pyheom_source/
+benchmark_workdir/
+*.out
+nise_N4_verification/
+papers/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
