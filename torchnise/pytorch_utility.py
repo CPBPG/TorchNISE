@@ -395,24 +395,23 @@ class CupyEigh(torch.autograd.Function):
     # -------- forward --------
     @staticmethod
     def forward(ctx, A_torch):
-        """
-        A_torch  (B,N,N, float32|float64, CUDA or CPU)
-                 *need not* be exactly symmetric – we enforce it here
-        returns   eigenvalues (B,N)   and eigenvectors (B,N,N)
-        """
-        # 1. force symmetry once – this keeps gradcheck happy
+        # ... (Force symmetry logic is fine) ...
         A_sym = 0.5 * (A_torch + A_torch.transpose(-2, -1))
 
-        # 2. CuPy view and eigh
         if not HAS_CUPY:
-            raise ImportError(
-                "Cupy is not installed. Please install cupy to use CupyEigh."
-            )
-        vals_cp, vecs_cp = cp.linalg.eigh(cp.asarray(A_sym))
+             raise ImportError("Cupy is not installed.")
 
-        # 3. zero-copy back to Torch
-        vals_t = dlpack.from_dlpack(vals_cp.toDlpack())
-        vecs_t = dlpack.from_dlpack(vecs_cp.toDlpack())
+        # 1. Convert to CuPy (Zero-Copy)
+        # Note: Use from_dlpack here too for best practice, though as_tensor works
+        A_cp = cp.from_dlpack(torch.utils.dlpack.to_dlpack(A_sym)) 
+        
+        # 2. Compute Eigh
+        vals_cp, vecs_cp = cp.linalg.eigh(A_cp)
+
+        # 3. Convert back to Torch (Zero-Copy) -- THE FIX
+        # Pass the CuPy array directly. Do not call .toDlpack()
+        vals_t = torch.utils.dlpack.from_dlpack(vals_cp)
+        vecs_t = torch.utils.dlpack.from_dlpack(vecs_cp)
 
         ctx.save_for_backward(vals_t, vecs_t)
         return vals_t, vecs_t

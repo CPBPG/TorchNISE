@@ -1,6 +1,6 @@
 """
 This module provides functions for averaging populations and estimating lifetimes
-of quantum states using various methods.
+of quantum states using various methods, now implementing the Strategy pattern.
 """
 
 import torch
@@ -8,13 +8,89 @@ from torch.linalg import matrix_exp
 import numpy as np
 from scipy.optimize import dual_annealing
 from torchnise.pytorch_utility import golden_section_search, matrix_logh, batch_trace
+from abc import ABC, abstractmethod
 
+
+class AveragingStrategy(ABC):
+    """
+    Abstract base class for averaging strategies.
+    """
+    @abstractmethod
+    def average(self, population, coherence, weight, weight_coherence, **kwargs):
+        pass
+
+class StandardAveraging(AveragingStrategy):
+    """
+    Standard averaging simply averages the population and coherence tensors repeatedly.
+    """
+    def average(self, population, coherence, weight, weight_coherence, **kwargs):
+        population_return = torch.mean(population * weight, dim=0)
+        coherence_return = None
+        if coherence is not None:
+             coherence_return = torch.mean(coherence * weight_coherence, dim=0)
+        return population_return, coherence_return
+
+class MatrixLogAveraging(AveragingStrategy):
+    """
+    Base class for methods that use matrix logarithm averaging (Boltzmann, Interpolated).
+    """
+    def _compute_meanres_matrix(self, coherence, weight_coherence):
+        meanres_coherence = torch.mean(coherence * weight_coherence, dim=0)
+        logres_matrix = torch.mean(matrix_logh(coherence) * weight_coherence, dim=0)
+        meanexp_matrix = matrix_exp(logres_matrix)
+        normalization = batch_trace(meanexp_matrix).unsqueeze(1).unsqueeze(1)
+        meanres_matrix = meanexp_matrix / normalization
+        meanres_matrix[0] = meanres_coherence[0]
+        return meanres_matrix
+
+    @abstractmethod
+    def average(self, population, coherence, weight, weight_coherence, **kwargs):
+        pass
+
+class BoltzmannAveraging(MatrixLogAveraging):
+    """
+    Averaging using Boltzmann weighting on the matrix logarithm of coherence.
+    """
+    def average(self, population, coherence, weight, weight_coherence, **kwargs):
+        assert coherence is not None, "Coherence required for Boltzmann averaging"
+        meanres_matrix = self._compute_meanres_matrix(coherence, weight_coherence)
+        population_return = torch.diagonal(meanres_matrix, dim1=-2, dim2=-1)
+        return population_return, meanres_matrix
+
+class InterpolatedAveraging(MatrixLogAveraging):
+    """
+    Averaging that interpolates between standard and Boltzmann based on lifetimes.
+    """
+    def average(self, population, coherence, weight, weight_coherence, **kwargs):
+        assert coherence is not None, "Coherence required for Interpolated averaging"
+        lifetimes = kwargs.get("lifetimes")
+        step = kwargs.get("step")
+        if lifetimes is None or step is None:
+             raise ValueError("Lifetimes and step required for Interpolated averaging")
+
+        meanres_orig = torch.mean(population * weight, dim=0)
+        meanres_matrix = self._compute_meanres_matrix(coherence, weight_coherence)
+        
+        population_return = blend_and_normalize_populations(
+            meanres_orig,
+            torch.diagonal(meanres_matrix, dim1=-2, dim2=-1),
+            lifetimes,
+            step,
+        )
+        return population_return, meanres_matrix
+
+# Registry of strategies
+AVERAGING_STRATEGIES = {
+    "standard": StandardAveraging,
+    "boltzmann": BoltzmannAveraging,
+    "interpolated": InterpolatedAveraging
+}
 
 def averaging(
     population, averaging_type, lifetimes=None, step=None, coherence=None, weight=None
 ):
     """
-    Average populations using various methods.
+    Average populations using various methods via Strategy pattern.
 
     Args:
         population (torch.Tensor): Population tensor.
@@ -32,63 +108,29 @@ def averaging(
         tuple: (torch.Tensor, torch.Tensor) - Averaged population and
             coherence.
     """
-    averaging_types = ["standard", "boltzmann", "interpolated"]
-
-    if averaging_type.lower() not in averaging_types:
+    
+    if averaging_type.lower() not in AVERAGING_STRATEGIES:
         raise NotImplementedError(
-            f"""{averaging_type} not implemented; only
-                                  {averaging_types} are available"""
+             f"{averaging_type} not implemented; only {list(AVERAGING_STRATEGIES.keys())} are available"
         )
 
-    if averaging_type.lower() in ["interpolated", "boltzmann"]:
-        assert (
-            coherence is not None
-        ), """Coherence matrix is required for 'interpolated' and 
-               'boltzmann' averaging types."""
-        if averaging_type.lower() == "interpolated":
-            assert (
-                lifetimes is not None
-            ), """"Lifetimes are required for
-                                              'interpolated' averaging."""
-            assert (
-                step is not None
-            ), """Time step size is required for
-                                         'interpolated' averaging."""
+    strategy_cls = AVERAGING_STRATEGIES[averaging_type.lower()]
+    strategy = strategy_cls()
+
     if weight is None:
         weight = 1
         weight_coherence = 1
     else:
         weight, weight_coherence = reshape_weights(weight, population, coherence)
-
-    meanres_orig = population_return = torch.mean(population * weight, dim=0)
-
-    if coherence is None:
-        meanres_coherence = None
-    else:
-        meanres_coherence = torch.mean(coherence * weight_coherence, dim=0)
-
-    if averaging_type.lower() == "standard":
-        population_return = meanres_orig
-        coherence_return = meanres_coherence
-    else:
-        logres_matrix = torch.mean(matrix_logh(coherence) * weight_coherence, dim=0)
-        meanexp_matrix = matrix_exp(logres_matrix)
-        normalization = batch_trace(meanexp_matrix).unsqueeze(1).unsqueeze(1)
-        meanres_matrix = meanexp_matrix / normalization
-        meanres_matrix[0] = meanres_coherence[0]
-        coherence_return = meanres_matrix
-
-        if averaging_type.lower() == "boltzmann":
-            population_return = torch.diagonal(meanres_matrix, dim1=-2, dim2=-1)
-        else:
-            population_return = blend_and_normalize_populations(
-                meanres_orig,
-                torch.diagonal(meanres_matrix, dim1=-2, dim2=-1),
-                lifetimes,
-                step,
-            )
-
-    return population_return, coherence_return
+    
+    return strategy.average(
+        population, 
+        coherence, 
+        weight, 
+        weight_coherence, 
+        lifetimes=lifetimes, 
+        step=step
+    )
 
 
 def estimate_lifetime(u_tensor, delta_t, method="oscillatory_fit_mae"):

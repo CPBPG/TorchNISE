@@ -18,11 +18,42 @@ T_UNITS = ["fs", "ps", "s"]
 CURRENT_E_UNIT = "cm-1"
 CURRENT_T_UNIT = "fs"
 
-# Initialize global variables
-K = K_CM
-HBAR = HBAR_CM
-T_UNIT = 1
+class UnitSystem:
+    def __init__(self, e_unit="cm-1", t_unit="fs"):
+        self.e_unit = e_unit.lower()
+        self.t_unit = t_unit.lower()
+        
+        if self.e_unit not in E_UNITS:
+            raise NotImplementedError(f"{e_unit} not implemented. Must be one of {E_UNITS}")
+        if self.t_unit not in T_UNITS:
+            raise NotImplementedError(f"{t_unit} not implemented. Must be one of {T_UNITS}")
+            
+        # Set energy unit constants
+        if self.e_unit == "cm-1":
+            self.HBAR = HBAR_CM
+            self.K = K_CM
+        elif self.e_unit == "ev":
+            self.HBAR = HBAR_CM * CM_TO_EV
+            self.K = K_CM * CM_TO_EV
+        elif self.e_unit == "j":
+            self.HBAR = HBAR_CM * CM_TO_EV * EV_TO_J
+            self.K = K_CM * CM_TO_EV * EV_TO_J
 
+        # Set time unit constants
+        if self.t_unit == "fs":
+            self.T_UNIT = 1
+        elif self.t_unit == "ps":
+            self.T_UNIT = 1 / FS_TO_PS
+        elif self.t_unit == "s":
+            self.T_UNIT = 1 / FS_TO_S
+
+# Initialize global default system
+_default_system = UnitSystem()
+
+# Initialize global variables for backward compatibility
+K = _default_system.K
+HBAR = _default_system.HBAR
+T_UNIT = _default_system.T_UNIT
 
 def set_units(e_unit="cm-1", t_unit="fs"):
     """
@@ -33,35 +64,12 @@ def set_units(e_unit="cm-1", t_unit="fs"):
         t_unit (float):  Time unit to be used. Must be one of "fs", "ps", "s"
     """
     # Declare globals to modify them
-    global K, HBAR, CURRENT_E_UNIT, CURRENT_T_UNIT, T_UNIT
+    global K, HBAR, CURRENT_E_UNIT, CURRENT_T_UNIT, T_UNIT, _default_system
 
-    if e_unit.lower() not in E_UNITS:
-        raise NotImplementedError(
-            f"{e_unit} not implemented. Must be one of " f"{E_UNITS}"
-        )
-    if t_unit.lower() not in T_UNITS:
-        raise NotImplementedError(
-            f"{t_unit} not implemented. Must be one of " f"{T_UNITS}"
-        )
+    _default_system = UnitSystem(e_unit, t_unit)
 
-    CURRENT_E_UNIT = e_unit.lower()
-    CURRENT_T_UNIT = t_unit.lower()
-
-    # Set energy unit constants
-    if e_unit.lower() == "cm-1":
-        HBAR = HBAR_CM
-        K = K_CM
-    elif e_unit.lower() == "ev":
-        HBAR = HBAR_CM * CM_TO_EV
-        K = K_CM * CM_TO_EV
-    elif e_unit.lower() == "j":
-        HBAR = HBAR_CM * CM_TO_EV * EV_TO_J
-        K = K_CM * CM_TO_EV * EV_TO_J
-
-    # Set time unit constants
-    if t_unit.lower() == "fs":
-        T_UNIT = 1
-    elif t_unit.lower() == "ps":
-        T_UNIT = 1 / FS_TO_PS
-    elif t_unit.lower() == "s":
-        T_UNIT = 1 / FS_TO_S
+    CURRENT_E_UNIT = _default_system.e_unit
+    CURRENT_T_UNIT = _default_system.t_unit
+    K = _default_system.K
+    HBAR = _default_system.HBAR
+    T_UNIT = _default_system.T_UNIT
