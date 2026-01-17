@@ -454,7 +454,7 @@ def run_comparison(
         
         # Upper limits for NISE to keep benchmark reasonable
         # Sparse often scales poorly with N
-        if N <= 100: 
+        if N <= 256: 
             tn_s = benchmark_nise_2017(
                 N, steps, 1.0, realizations_N, n_jobs, "Sparse", nise_technique, save_nise_output
             )
@@ -462,7 +462,7 @@ def run_comparison(
             tn_s = None
 
         # Coupling often scales better
-        if N <= 1024:
+        if N <= 16384:
             tn_c = benchmark_nise_2017(
                 N, steps, 1.0, realizations_N, n_jobs, "Coupling", nise_technique, save_nise_output
             )
@@ -470,12 +470,15 @@ def run_comparison(
             tn_c = None
             
         # TorchNISE CPU
-        tt_cpu = benchmark_torchnise(
-            N, steps, 1.0, "cpu", realizations_N, propagation_type, save_nise_output
-        )
+        if N <= 8192:
+            tt_cpu = benchmark_torchnise(
+                N, steps, 1.0, "cpu", realizations_N, propagation_type, save_nise_output
+            )
+        else:
+            tt_cpu = None
         
         # TorchNISE GPU
-        if torch.cuda.is_available():
+        if torch.cuda.is_available() and N <= 16384:
             tt_gpu = benchmark_torchnise(
                 N, steps, 1.0, "cuda", realizations_N, propagation_type, save_nise_output
             )
@@ -532,12 +535,12 @@ def plot(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark TorchNISE vs NISE_2017")
-    parser.add_argument("--propagation-type", choices=["matrix", "vector"], default="matrix", help="Propagation mode")
-    parser.add_argument("--realizations", type=int, nargs="+", default=[10000, 10000, 10000, 1000])
+    parser.add_argument("--propagation-type", choices=["matrix", "vector"], default="vector", help="Propagation mode")
+    parser.add_argument("--realizations", type=int, nargs="+",  default=[10000, 10000, 10000, 1000, 500, 500, 100, 16, 16])
     parser.add_argument("--steps", type=int, default=100)
-    parser.add_argument("--sizes", type=int, nargs="+", default=[2,4,8,16])
+    parser.add_argument("--sizes", type=int, nargs="+", default=[2,4,8,16,32,64,128,256])
     parser.add_argument("--jobs", type=int, default=16, help="NISE 2017 Parallel Jobs")
-    parser.add_argument("--no-save-nise-output", action="store_true")
+    parser.add_argument("--save-nise-output", action="store_true")
     parser.add_argument("--neighbours", type=int, default=4)
 
     args = parser.parse_args()
@@ -549,7 +552,7 @@ if __name__ == "__main__":
     with torch.no_grad():
         res = run_comparison(
             args.sizes, args.realizations, args.steps, args.jobs, 
-            not args.no_save_nise_output, noise_args, args.neighbours, 
+            args.save_nise_output, noise_args, args.neighbours, 
             args.propagation_type
         )
     
