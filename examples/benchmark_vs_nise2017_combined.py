@@ -154,7 +154,7 @@ def read_td_absorption(filepath: str):
 
 def write_binary_site_energies(filepath, n_sites, steps, realizations, dt, noise=None):
     """Writes Time-Dependent Site Energies to NISE 2017 Binary Format."""
-    total_records = realizations * steps
+    total_records = realizations * (steps + 1)
     data = np.zeros((total_records, 1 + n_sites), dtype=np.float32)
     data[:, 0] = np.arange(total_records, dtype=np.float32)
     
@@ -195,7 +195,7 @@ def generate_nise_inputs(
     n_neighbours: int,
 ) -> int:
     os.makedirs(WORK_DIR, exist_ok=True)
-    total_len = steps * realizations
+    total_len = (steps + 1) * realizations
 
     print(f"Generating noise for N={n_sites}, Steps={steps}, Reals={realizations}...")
     spectral_func = functools.partial(
@@ -207,7 +207,7 @@ def generate_nise_inputs(
     )
     spectral_funcs = [spectral_func] * n_sites
     noise = gen_noise(
-        spectral_funcs, dt, shape=(steps, realizations, n_sites), use_h5=False, device="cpu"
+        spectral_funcs, dt, shape=(steps+1, realizations, n_sites), use_h5=False, device="cpu"
     )
 
     h_step = np.zeros((n_sites, n_sites))
@@ -271,7 +271,7 @@ def create_job_input(
 
     input_content = f"""Propagation {propagation_mode}
 Couplingcut 1
-Threshold 0.0
+Threshold 0.1
 SaveFiles {save_files_flag}
 HamiltonianType Coupling
 Hamiltonianfile Energy.bin
@@ -289,7 +289,7 @@ Technique {technique}
 FFT 2048
 RunTimes {steps} 0 0
 BeginPoint {begin_realization}
-EndPoint {end_realization - 1}
+EndPoint {end_realization}
 Singles {n_sites}
 Doubles 0
 Skip Doubles
@@ -302,9 +302,9 @@ InitialState 1
 def run_nise_job(args: Tuple) -> None:
     os.environ["OMP_NUM_THREADS"] = "1"
     job_id, n_sites, steps, dt, begin, end, traj_steps, propagation_mode, technique, save_files = args
-    if n_sites >= 256: os.environ['OMP_NUM_THREADS'] = '2'
-    if n_sites >= 512: os.environ['OMP_NUM_THREADS'] = '4'
-    if n_sites >= 1024: os.environ['OMP_NUM_THREADS'] = '16'
+    #if n_sites >= 1024: os.environ['OMP_NUM_THREADS'] = '2'
+    if n_sites >= 2048 and technique == "Population": os.environ['OMP_NUM_THREADS'] = '4'
+    if n_sites >= 4096 and technique == "Population": os.environ['OMP_NUM_THREADS'] = '16'
 
     job_dir = os.path.join(WORK_DIR, f"job_{propagation_mode}_{job_id}")
     os.makedirs(job_dir, exist_ok=True)
@@ -343,7 +343,7 @@ def benchmark_nise_2017(
     technique: str,
     save_files: bool,
 ) -> float:
-    traj_steps = steps * realizations
+    traj_steps = (steps+1) * realizations
     if n_jobs > realizations: n_jobs = realizations
 
     job_args = []
@@ -352,6 +352,7 @@ def benchmark_nise_2017(
     current_begin = 0
     for i in range(n_jobs):
         count = chunk_size + (1 if i < remainder else 0)
+        #print(f"Job {i}: {count} realizations")
         current_end = current_begin + count
         if count > 0:
             job_args.append(
@@ -389,7 +390,7 @@ def benchmark_torchnise(
     conf.hamiltonian_type = "Coupling"
     conf.coupling_file = os.path.join(work_dir, "Coupling.bin")
     conf.dipole_file = os.path.join(work_dir, "Dipole.bin")
-    conf.length = steps * realizations
+    conf.length = (steps+1) * realizations
     conf.sample_rate = steps # To match NISE benchmark inputs generally
     conf.t_max_1 = steps
     conf.timestep = dt
@@ -431,59 +432,112 @@ def run_comparison(
     noise_args: Tuple,
     n_neighbours: int,
     propagation_type: str,
-) -> Tuple[List[int], List[float], List[float], List[float], List[float]]:
+    # Specific realizations per method (optional with fallback)
+    reals_nise_sparse: Optional[List[int]] = None,
+    reals_nise_coupling: Optional[List[int]] = None,
+    reals_torch_cpu: Optional[List[int]] = None,
+    reals_torch_gpu: Optional[List[int]] = None,
+    # Specific max sizes (optional with defaults)
+    max_size_nise_sparse: Optional[int] = None,
+    max_size_nise_coupling: Optional[int] = None,
+    max_size_torch_cpu: Optional[int] = None,
+    max_size_torch_gpu: Optional[int] = None,
+) -> Tuple[List[int], List[float], List[float], List[float], List[float], List[List[int]]]:
     
     t_nise_sparse = []
     t_nise_coupling = []
     t_torch_cpu = []
     t_torch_gpu = []
     
+    # Store used realizations for plotting/saving
+    used_reals_sparse = []
+    used_reals_coupling = []
+    used_reals_cpu = []
+    used_reals_gpu = []
+
+    # Helper to resolve realization count for a given index i
+    def get_reals(specific_list, global_list, idx):
+        if specific_list is not None and idx < len(specific_list):
+            return specific_list[idx]
+        if idx < len(global_list):
+            return global_list[idx]
+        return global_list[-1] # Fallback to last known
+
+    # Helper to resolve max size limit
+    def get_limit(user_val, default_val):
+        return user_val if user_val is not None else default_val
+
+    # Default limits based on propagation_type
+    if propagation_type == "vector":
+        lim_sparse = get_limit(max_size_nise_sparse, 256)
+        lim_coupling = get_limit(max_size_nise_coupling, 16384)
+        lim_cpu = get_limit(max_size_torch_cpu, 8192)
+        lim_gpu = get_limit(max_size_torch_gpu, 16384)
+    else: # matrix
+        lim_sparse = get_limit(max_size_nise_sparse, 256)
+        lim_coupling = get_limit(max_size_nise_coupling, 512)
+        lim_cpu = get_limit(max_size_torch_cpu, 256)
+        lim_gpu = get_limit(max_size_torch_gpu, 16384)
+
     # Map propagation_type to NISE Technique
     nise_technique = "Population" if propagation_type == "matrix" else "Absorption"
 
     print(f"\nMode: {propagation_type.upper()} Propagation (NISE Technique: {nise_technique})")
+    print(f"Limits: Sparse={lim_sparse}, Coupling={lim_coupling}, CPU={lim_cpu}, GPU={lim_gpu}")
     print(f"{'N':<5} | {'NISE Sparse':<15} | {'NISE Coupling':<15} | {'Torch CPU':<10} | {'Torch GPU':<10}")
     print("-" * 75)
 
     omega_k, lambda_k, v_k, temp = noise_args
 
-    for N, realizations_N in zip(sizes, realizations):
+    for i, N in enumerate(sizes):
+        # Resolve realizations for this N
+        r_sparse = get_reals(reals_nise_sparse, realizations, i)
+        r_coupling = get_reals(reals_nise_coupling, realizations, i)
+        r_cpu = get_reals(reals_torch_cpu, realizations, i)
+        r_gpu = get_reals(reals_torch_gpu, realizations, i)
+        
+        # We need to generate enough noise for the maximum required realizations
+        max_reals_needed = max(r_sparse, r_coupling, r_cpu, r_gpu)
+        
         generate_nise_inputs(
-            N, steps, 1.0, realizations_N, omega_k, lambda_k, v_k, temp, n_neighbours
+            N, steps, 1.0, max_reals_needed, omega_k, lambda_k, v_k, temp, n_neighbours
         )
         
-        # Upper limits for NISE to keep benchmark reasonable
-        # Sparse often scales poorly with N
-        if N <= 256: 
+        # NISE Sparse
+        if N <= lim_sparse:
             tn_s = benchmark_nise_2017(
-                N, steps, 1.0, realizations_N, n_jobs, "Sparse", nise_technique, save_nise_output
+                N, steps, 1.0, r_sparse, n_jobs, "Sparse", nise_technique, save_nise_output
             )
         else:
             tn_s = None
+        used_reals_sparse.append(r_sparse)
 
-        # Coupling often scales better
-        if N <= 16384:
+        # NISE Coupling
+        if N <= lim_coupling:
             tn_c = benchmark_nise_2017(
-                N, steps, 1.0, realizations_N, n_jobs, "Coupling", nise_technique, save_nise_output
+                N, steps, 1.0, r_coupling, n_jobs, "Coupling", nise_technique, save_nise_output
             )
         else:
             tn_c = None
+        used_reals_coupling.append(r_coupling)
             
         # TorchNISE CPU
-        if N <= 8192:
+        if N <= lim_cpu:
             tt_cpu = benchmark_torchnise(
-                N, steps, 1.0, "cpu", realizations_N, propagation_type, save_nise_output
+                N, steps, 1.0, "cpu", r_cpu, propagation_type, save_nise_output
             )
         else:
             tt_cpu = None
+        used_reals_cpu.append(r_cpu)
         
         # TorchNISE GPU
-        if torch.cuda.is_available() and N <= 16384:
+        if torch.cuda.is_available() and N <= lim_gpu:
             tt_gpu = benchmark_torchnise(
-                N, steps, 1.0, "cuda", realizations_N, propagation_type, save_nise_output
+                N, steps, 1.0, "cuda", r_gpu, propagation_type, save_nise_output
             )
         else:
             tt_gpu = None
+        used_reals_gpu.append(r_gpu)
 
         t_nise_sparse.append(tn_s)
         t_nise_coupling.append(tn_c)
@@ -493,32 +547,42 @@ def run_comparison(
         def fmt(x): return f"{x:.4f}" if x is not None else "N/A"
         print(f"{N:<5} | {fmt(tn_s):<15} | {fmt(tn_c):<15} | {fmt(tt_cpu):<10} | {fmt(tt_gpu):<10}")
 
-    return sizes, t_nise_sparse, t_nise_coupling, t_torch_cpu, t_torch_gpu
+    return sizes, t_nise_sparse, t_nise_coupling, t_torch_cpu, t_torch_gpu, [used_reals_sparse, used_reals_coupling, used_reals_cpu, used_reals_gpu]
 
 
 def plot(
     sizes, t_nise_sparse, t_nise_coupling, t_torch_cpu, t_torch_gpu, 
-    realizations, steps, n_jobs, n_neighbours, propagation_type
+    used_reals_list, # unpack the list of lists
+    steps, n_jobs, n_neighbours, propagation_type
 ):
-    plt.figure(figsize=(10, 6))
-    realizations = realizations[:len(sizes)]
-    max_reals = max(realizations)
     
-    def plot_line(data, label, marker):
+    # used_reals_list contains [used_reals_sparse, used_reals_coupling, used_reals_cpu, used_reals_gpu]
+    used_reals_sparse, used_reals_coupling, used_reals_cpu, used_reals_gpu = used_reals_list
+
+    plt.figure(figsize=(10, 6))
+    
+    # We want to normalize to some "max_reals" for consistency in the y-axis label
+    # Let's pick the max of all used realizations as the normalization base
+    all_reals = []
+    for r_list in used_reals_list:
+        all_reals.extend(r_list)
+    max_reals = max(all_reals) if all_reals else 1
+    
+    def plot_line(data, reals_for_data, label, marker):
         mask = [x is not None for x in data]
         if any(mask):
             x = np.array(sizes)[mask]
             y = np.array(data)[mask]
             # Normalize to per max_reals equivalent
             # y_norm = time / reals * max_reals
-            reals = np.array(realizations)[mask]
+            reals = np.array(reals_for_data)[mask]
             y_norm = y / reals * max_reals
             plt.plot(x, y_norm, marker, label=label)
 
-    plot_line(t_nise_sparse, "NISE (Sparse)", "o--")
-    plot_line(t_nise_coupling, "NISE (Coupling)", "x--")
-    plot_line(t_torch_cpu, "TorchNISE (CPU)", "s-")
-    plot_line(t_torch_gpu, "TorchNISE (GPU)", "^-")
+    plot_line(t_nise_sparse, used_reals_sparse, "NISE (Sparse)", "o--")
+    plot_line(t_nise_coupling, used_reals_coupling, "NISE (Coupling)", "x--")
+    plot_line(t_torch_cpu, used_reals_cpu, "TorchNISE (CPU)", "s-")
+    plot_line(t_torch_gpu, used_reals_gpu, "TorchNISE (GPU)", "^-")
 
     plt.xlabel('System Size N')
     plt.ylabel(f'Time (s) normalized to {max_reals} realizations')
@@ -532,16 +596,62 @@ def plot(
     plt.savefig(filename)
     print(f"Saved plot to {filename}")
 
+    # Save original data (non normalized)
+    dat_filename = f'comparison_benchmark_{propagation_type}_{steps}_{n_jobs}j_{n_neighbours}neighbors.dat'
+    with open(dat_filename, 'w') as f:
+        f.write("# Size NISE_Sparse NISE_Coupling Torch_CPU Torch_GPU Reals_Sparse Reals_Coupling Reals_CPU Reals_GPU\n")
+        
+        # Unpack again for clarity
+        ur_sp, ur_cp, ur_cpu, ur_gpu = used_reals_list
+        
+        for i, size in enumerate(sizes):
+            def to_str(val): return str(val) if val is not None else "nan"
+            row = [
+                str(size),
+                to_str(t_nise_sparse[i]),
+                to_str(t_nise_coupling[i]),
+                to_str(t_torch_cpu[i]),
+                to_str(t_torch_gpu[i]),
+                str(ur_sp[i]),
+                str(ur_cp[i]),
+                str(ur_cpu[i]),
+                str(ur_gpu[i])
+            ]
+            f.write(" ".join(row) + "\n")
+    print(f"Saved raw data to {dat_filename}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark TorchNISE vs NISE_2017")
     parser.add_argument("--propagation-type", choices=["matrix", "vector"], default="vector", help="Propagation mode")
-    parser.add_argument("--realizations", type=int, nargs="+",  default=[10000, 10000, 10000, 1000, 500, 500, 100, 16, 16])
+    parser.add_argument("--realizations", type=int, nargs="+",  default=[16])
     parser.add_argument("--steps", type=int, default=100)
-    parser.add_argument("--sizes", type=int, nargs="+", default=[2,4,8,16,32,64,128,256])
+    parser.add_argument("--sizes", type=int, nargs="+", default=[2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,12288])
     parser.add_argument("--jobs", type=int, default=16, help="NISE 2017 Parallel Jobs")
     parser.add_argument("--save-nise-output", action="store_true")
     parser.add_argument("--neighbours", type=int, default=4)
+    # Specific realizations per method
+    # vector-defaults
+    parser.add_argument("--reals-nise-sparse", type=int, nargs="+", default=[10000,10000,10000,10000,512,256,128,32,16,16,16,16,16,16])#default=[10000,10000,10000,10000,512,256,128,32,16])
+    parser.add_argument("--reals-nise-coupling", type=int, nargs="+", default=[10000,10000,10000,10000,10000,10000,10000,10000,4096,2048,512,128,32,16])#default=[10000,10000,10000,10000,10000,10000,10000,10000,4096])
+    parser.add_argument("--reals-torch-cpu", type=int, nargs="+", default=[10000,10000,10000,10000,1024,512,256,128,64,32,4,1,1,1])#default=[10000,10000,10000,10000,1024,512,256,128,64])
+    parser.add_argument("--reals-torch-gpu", type=int, nargs="+", default=[10000,10000,10000,10000,10000,10000,4096,512,256,128,32,8,2,1])#default=[10000,10000,10000,10000,10000,10000,4096,512,256])
+    # Specific max sizes
+    parser.add_argument("--max-size-nise-sparse", type=int, default=512)
+    parser.add_argument("--max-size-nise-coupling", type=int, default=16384)
+    parser.add_argument("--max-size-torch-cpu", type=int, default=4096)
+    parser.add_argument("--max-size-torch-gpu", type=int, default=16384)
+    
+    # matrix-defaults
+    # parser.add_argument("--reals-nise-sparse", type=int, nargs="+", default=[10000,10000,10000,10000,512,128,32,16,16,16,16,16,16,16])#[10000,10000,10000,10000,512,128,32,16,16])
+    # parser.add_argument("--reals-nise-coupling", type=int, nargs="+", default=[10000,10000,10000,10000,10000,2048,512,128,64,16,4,1,1,1])#[10000,10000,10000,10000,10000,2048,512,128,64])
+    # parser.add_argument("--reals-torch-cpu", type=int, nargs="+", default=[10000,10000,10000,10000,1024,512,256,128,64,8,1,1,1,1])#[10000,10000,10000,10000,1024,512,256,128,64])
+    # parser.add_argument("--reals-torch-gpu", type=int, nargs="+", default=[10000,10000,10000,10000,10000,10000,4096,512,256,64,16,4,1,1])#[10000,10000,10000,10000,10000,10000,4096,512,256])
+    # Specific max sizes
+    # parser.add_argument("--max-size-nise-sparse", type=int, default=256)
+    # parser.add_argument("--max-size-nise-coupling", type=int, default=4096)
+    # parser.add_argument("--max-size-torch-cpu", type=int, default=4096)
+    # parser.add_argument("--max-size-torch-gpu", type=int, default=16384)
 
     args = parser.parse_args()
     units.set_units(e_unit="cm-1", t_unit="fs")
@@ -553,7 +663,16 @@ if __name__ == "__main__":
         res = run_comparison(
             args.sizes, args.realizations, args.steps, args.jobs, 
             args.save_nise_output, noise_args, args.neighbours, 
-            args.propagation_type
+            args.propagation_type,
+            reals_nise_sparse=args.reals_nise_sparse,
+            reals_nise_coupling=args.reals_nise_coupling,
+            reals_torch_cpu=args.reals_torch_cpu,
+            reals_torch_gpu=args.reals_torch_gpu,
+            max_size_nise_sparse=args.max_size_nise_sparse,
+            max_size_nise_coupling=args.max_size_nise_coupling,
+            max_size_torch_cpu=args.max_size_torch_cpu,
+            max_size_torch_gpu=args.max_size_torch_gpu,
         )
     
-    plot(*res, args.realizations, args.steps, args.jobs, args.neighbours, args.propagation_type)
+    # res is (sizes, t_nise_sparse, t_nise_coupling, t_torch_cpu, t_torch_gpu, used_reals_list)
+    plot(res[0], res[1], res[2], res[3], res[4], res[5], args.steps, args.jobs, args.neighbours, args.propagation_type)

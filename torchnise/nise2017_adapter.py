@@ -300,11 +300,11 @@ class NISEBinaryLoader:
         stride_floats = 1 + n_tri_singles + n_tri_doubles
 
         h_full = torch.zeros(
-            (t_max, num_realizations, n_sites, n_sites), dtype=torch.float32,device=self.device
+            (t_max+1, num_realizations, n_sites, n_sites), dtype=torch.float32,device=self.device
         )
         h_doubles = (
             torch.zeros(
-                (t_max, num_realizations, n_doubles, n_doubles), dtype=torch.float32,device=self.device
+                (t_max+1, num_realizations, n_doubles, n_doubles), dtype=torch.float32,device=self.device
             )
             if n_doubles > 0
             else None
@@ -318,7 +318,7 @@ class NISEBinaryLoader:
                 offset_steps = begin * sample_rate
                 f.seek(offset_steps * stride_floats * 4)
 
-                total_steps_to_read = num_realizations * t_max
+                total_steps_to_read = num_realizations * (t_max+1)
                 count = total_steps_to_read * stride_floats
 
                 data = np.fromfile(f, dtype=np.float32, count=count)
@@ -326,14 +326,14 @@ class NISEBinaryLoader:
                     raise EOFError(f"Unexpected EOF in {file_path}")
 
                 # Reshape to (num_realizations, t_max, stride_floats)
-                data = data.reshape((num_realizations, t_max, stride_floats))
+                data = data.reshape((num_realizations, t_max+1, stride_floats))
 
                 # Singles
                 h_tri_s = data[:, :, 1 : 1 + n_tri_singles]  # (R, T, n_tri_s)
 
                 # We need to fill h_full (T, R, N, N)
                 h_full_rt = torch.zeros(
-                    (num_realizations, t_max, n_sites, n_sites), dtype=torch.float32,device=self.device
+                    (num_realizations, t_max+1, n_sites, n_sites), dtype=torch.float32,device=self.device
                 )
                 tens_tri_s = torch.from_numpy(h_tri_s).to(self.device)
                 h_full_rt[:, :, iu_s[0], iu_s[1]] = tens_tri_s
@@ -344,7 +344,7 @@ class NISEBinaryLoader:
                 if n_doubles > 0:
                     h_tri_d = data[:, :, 1 + n_tri_singles : stride_floats]
                     h_doubles_rt = torch.zeros(
-                        (num_realizations, t_max, n_doubles, n_doubles),
+                        (num_realizations, t_max+1, n_doubles, n_doubles),
                         dtype=torch.float32,
                         device=self.device,
                     )
@@ -357,14 +357,14 @@ class NISEBinaryLoader:
                 for r in range(num_realizations):
                     base_step = (begin + r) * sample_rate
                     f.seek(base_step * stride_floats * 4)
-                    count = t_max * stride_floats
+                    count = (t_max+1) * stride_floats
                     data = np.fromfile(f, dtype=np.float32, count=count)
                     if len(data) < count:
                         raise EOFError(
                             f"Unexpected EOF in {file_path} (Realization {r})"
                         )
 
-                    data = data.reshape((t_max, stride_floats))
+                    data = data.reshape((t_max+1, stride_floats))
                     h_tri_s = data[:, 1 : 1 + n_tri_singles]
                     h_full[:, r, iu_s[0], iu_s[1]] = torch.from_numpy(h_tri_s).to(self.device)
                     h_full[:, r, iu_s[1], iu_s[0]] = torch.from_numpy(h_tri_s).to(self.device)
@@ -408,18 +408,18 @@ class NISEBinaryLoader:
 
         # 2. Load Dynamic Site Energies
         stride = 1 + n_sites
-        energies = torch.zeros((t_max, num_realizations, n_sites), dtype=torch.float32,device=self.device)
+        energies = torch.zeros((t_max+1, num_realizations, n_sites), dtype=torch.float32,device=self.device)
 
         with open(ham_file, "rb") as f:
             if sample_rate == t_max:
                 offset = begin * sample_rate * stride * 4
                 f.seek(offset)
-                total_floats = num_realizations * t_max * stride
+                total_floats = num_realizations * (t_max+1) * stride
                 data = np.fromfile(f, dtype=np.float32, count=total_floats)
                 
                 # Reshape safe
                 actual_len = len(data) // stride
-                data = data[:actual_len*stride].reshape((actual_len // t_max, t_max, stride))
+                data = data[:actual_len*stride].reshape((actual_len // (t_max+1), t_max+1, stride))
                 # energies: [R, T, N]
                 e_vals = torch.from_numpy(data[:, :, 1:])
                 # Permute to [T, R, N] for site_noise format
@@ -428,11 +428,11 @@ class NISEBinaryLoader:
                  for r in range(num_realizations):
                     base = (begin + r) * sample_rate * stride * 4
                     f.seek(base)
-                    count = t_max * stride
+                    count = (t_max+1) * stride
                     data = np.fromfile(f, dtype=np.float32, count=count)
                     if len(data) < count: 
                          break # Handle EOF
-                    data = data.reshape((t_max, stride))
+                    data = data.reshape((t_max+1, stride))
                     energies[:, r, :] = torch.from_numpy(data[:, 1:]).to(self.device)
 
         # Return static H and noise
@@ -713,7 +713,7 @@ def save_nise2017_output_pop_only(population, total_time, dt):
 
 def save_nise2017_absorption(avg_s1, config: NISE2017Config):
     """Saves Absorption.dat and TD_Absorption.dat in NISE 2017 format."""
-    total_time = (config.t_max_1 - 1) * config.timestep
+    total_time = (config.t_max_1) * config.timestep
     n_steps = config.t_max_1
     time_axis = np.linspace(0, total_time, n_steps)
 
@@ -833,7 +833,7 @@ class PropagationBasedCalculation(NISECalculation):
     """Base class for calculations involving time propagation (Population, Diffusion, Absorption, etc.)."""
 
     def get_common_params(self, mode="Population"):
-        total_time = (self.config.t_max_1 - 1) * self.config.timestep
+        total_time = (self.config.t_max_1) * self.config.timestep
         return NISEParameters(
             dt=self.config.timestep,
             total_time=total_time,
@@ -907,7 +907,7 @@ class PopulationCalculation(PropagationBasedCalculation):
             h_torch, params, initial_state, site_noise=site_noise
         )
 
-        total_time = (self.config.t_max_1 - 1) * self.config.timestep
+        total_time = (self.config.t_max_1) * self.config.timestep
         
         if self.config.save_popf:
             print("Saving output to Pop.dat and PopF.dat")

@@ -140,7 +140,7 @@ class StandardPropagator(NISEPropagator):
             torch.cuda.empty_cache()
             
         h = h.to(dtype=torch.float32)
-        if using_cuda and n_sites > 32 and n_sites < 512 and HAS_CUPY:
+        if using_cuda and n_sites > 32 and n_sites <= 512 and HAS_CUPY:
              e, c = CupyEigh.apply(h)
         else:
              e, c = torch.linalg.eigh(h)
@@ -195,7 +195,7 @@ class StandardPropagator(NISEPropagator):
                 h = hfull[t, :, :, :].clone().to(device=device)
 
             h = h.to(dtype=torch.float32)
-            if using_cuda and n_sites > 32 and n_sites < 512 and HAS_CUPY:
+            if using_cuda and n_sites > 32 and n_sites <= 512 and HAS_CUPY:
                 e, c = CupyEigh.apply(h)
             else:
                 e, c = torch.linalg.eigh(h)
